@@ -31,6 +31,16 @@ const api: AiOfficeApi = {
   bridge: {
     timeline: call('bridge:timeline'),
   } as AiOfficeApi['bridge'],
+  meetings: {
+    list: call('meetings:list'),
+    messages: call('meetings:messages'),
+    start: call('meetings:start'),
+    say: call('meetings:say'),
+    requestTurn: call('meetings:requestTurn'),
+    setPaused: call('meetings:setPaused'),
+    end: call('meetings:end'),
+    exportMarkdown: call('meetings:exportMarkdown'),
+  } as AiOfficeApi['meetings'],
   on(channel: string, cb: (payload: any) => void) {
     const listener = (_: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on(channel, listener);

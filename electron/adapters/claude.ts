@@ -49,6 +49,8 @@ interface Session {
   input: InputQueue;
   query: Query;
   sessionId?: string;
+  // Chamadas aguardando o resultado final de um turno (reunioes, resumos).
+  pending: { resolve: (text: string) => void; reject: (err: Error) => void }[];
 }
 
 type PendingApproval = { resolve: (r: PermissionResult) => void; input: Record<string, unknown> };
@@ -58,6 +60,10 @@ export class ClaudeAdapter {
   private approvals = new Map<string, PendingApproval>();
   private savedSessions = readJson<Record<string, string>>('claude-sessions.json', {});
   private sdk?: typeof import('@anthropic-ai/claude-agent-sdk');
+  private z?: typeof import('zod');
+
+  // delegate: envia uma tarefa a outro agente e devolve a resposta final real dele.
+  constructor(private delegate: (agentId: string, task: string) => Promise<string>) {}
 
   async init() {
     bus.registerAgent({
@@ -68,17 +74,27 @@ export class ClaudeAdapter {
     });
     try {
       this.sdk = await import('@anthropic-ai/claude-agent-sdk');
+      this.z = await import('zod');
     } catch (err) {
       bus.patchAgent(AGENT, { status: 'disconnected', unavailable: `Claude Agent SDK indisponivel: ${err}` });
     }
   }
 
+  // Mensagem do chat: ninguem aguarda o resultado (a resposta chega pelos eventos).
   async send(text: string, cwd: string, projectId?: string) {
-    const s = this.session(cwd, projectId);
+    bus.patchAgent(AGENT, { projectId });
+    this.ask(text, cwd, projectId ?? 'default', projectId).catch(() => undefined);
+  }
+
+  // Envia um prompt numa sessao dedicada (ex.: "meeting:<id>") e devolve o texto final do turno.
+  ask(text: string, cwd: string, key: string, projectId?: string): Promise<string> {
+    const s = this.session(cwd, projectId, key);
     bus.agentEvent({ kind: 'user_message', agentId: AGENT, ts: Date.now(), text, projectId, sessionId: s.sessionId });
     bus.setStatus(AGENT, 'thinking');
-    bus.patchAgent(AGENT, { projectId });
-    s.input.push(text);
+    return new Promise((resolve, reject) => {
+      s.pending.push({ resolve, reject });
+      s.input.push(text);
+    });
   }
 
   async interrupt() {
@@ -99,8 +115,7 @@ export class ClaudeAdapter {
     for (const s of this.sessions.values()) s.input.close();
   }
 
-  private session(cwd: string, projectId?: string): Session {
-    const key = projectId ?? 'default';
+  private session(cwd: string, projectId?: string, key = projectId ?? 'default'): Session {
     const existing = this.sessions.get(key);
     if (existing) return existing;
     if (!this.sdk) throw new Error('Claude Agent SDK indisponivel.');
@@ -113,18 +128,47 @@ export class ClaudeAdapter {
         cwd,
         resume,
         includePartialMessages: true,
+        mcpServers: { 'ai-office': this.officeMcp() },
         // Mantem as configuracoes e regras de permissao do usuario (mesmo comportamento do CLI).
         canUseTool: (toolName, toolInput, { signal }) => this.askApproval(toolName, toolInput, signal, projectId),
       },
     });
-    const s: Session = { key, projectId, cwd, input, query, sessionId: resume };
+    const s: Session = { key, projectId, cwd, input, query, sessionId: resume, pending: [] };
     this.sessions.set(key, s);
     this.pump(s).catch((err) => {
       bus.agentEvent({ kind: 'error', agentId: AGENT, ts: Date.now(), message: String(err), projectId });
       bus.setStatus(AGENT, 'error', String(err));
+      for (const p of s.pending.splice(0)) p.reject(err instanceof Error ? err : new Error(String(err)));
       this.sessions.delete(key);
     });
     return s;
+  }
+
+  // Servidor MCP em processo: ferramentas de colaboracao do escritorio disponiveis ao Claude.
+  private officeMcp() {
+    const { createSdkMcpServer, tool } = this.sdk!;
+    const z = this.z!;
+    return createSdkMcpServer({
+      name: 'ai-office',
+      version: '0.1.0',
+      instructions: 'Ferramentas do AI Office. Use delegate_to_codex para passar uma tarefa de implementacao ao Codex (outro agente de IA de programacao rodando nesta maquina) e receber a resposta final dele.',
+      tools: [
+        tool(
+          'delegate_to_codex',
+          'Delega uma tarefa ao Codex e espera a resposta final dele. Inclua caminho do projeto, objetivo e criterio de pronto.',
+          { task: z.string().describe('Tarefa completa e autocontida para o Codex') },
+          async ({ task }) => {
+            bus.setStatus(AGENT, 'awaiting_agent', 'Codex');
+            try {
+              const reply = await this.delegate('codex', task);
+              return { content: [{ type: 'text', text: reply || '(Codex terminou sem mensagem final)' }] };
+            } catch (err) {
+              return { content: [{ type: 'text', text: `Falha na delegacao: ${err}` }], isError: true };
+            }
+          },
+        ),
+      ],
+    });
   }
 
   private askApproval(tool: string, input: Record<string, unknown>, signal: AbortSignal, projectId?: string) {
@@ -194,10 +238,15 @@ export class ClaudeAdapter {
             ...base(), kind: 'usage',
             inputTokens: m.usage?.input_tokens, outputTokens: m.usage?.output_tokens, costUsd: m.total_cost_usd,
           });
+          const waiter = s.pending.shift();
           if (m.subtype !== 'success') {
             bus.agentEvent({ ...base(), kind: 'error', message: `Turno terminou com ${m.subtype}` });
             bus.setStatus(AGENT, 'error', m.subtype);
-          } else bus.setStatus(AGENT, 'idle');
+            waiter?.reject(new Error(`Turno do Claude terminou com ${m.subtype}`));
+          } else {
+            bus.setStatus(AGENT, 'idle');
+            waiter?.resolve(m.result);
+          }
           break;
         }
       }

@@ -1,7 +1,8 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AgentId } from '../src/shared/types';
+import type { AgentId, Meeting } from '../src/shared/types';
+import { Meetings } from './meetings';
 import { ClaudeAdapter } from './adapters/claude';
 import { CodexAdapter } from './adapters/codex';
 import { watchBridgeInbox } from './bridge';
@@ -10,8 +11,11 @@ import { processes } from './processes';
 import * as projects from './projects';
 
 export function registerIpc(getWin: () => BrowserWindow | null) {
-  const claude = new ClaudeAdapter();
   const codex = new CodexAdapter();
+  const claude = new ClaudeAdapter((agentId, task) => {
+    if (agentId !== 'codex') throw new Error(`Delegacao para ${agentId} nao suportada.`);
+    return codex.delegate('Claude', task);
+  });
   void claude.init();
   codex.init();
   const stopBridge = watchBridgeInbox();
@@ -87,6 +91,37 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
   });
 
   ipcMain.handle('bridge:timeline', () => bus.bridgeTimeline());
+
+  const meetings = new Meetings((agentId, prompt, m) => {
+    if (agentId === 'claude') return claude.ask(prompt, cwdFor(m.projectId), `meeting:${m.id}`, m.projectId);
+    if (agentId === 'codex') return codex.delegate('Reuniao', prompt);
+    throw new Error(`Agente desconhecido: ${agentId}`);
+  });
+  meetings.on('changed', send('meeting-changed'));
+  meetings.on('message', send('meeting-message'));
+  const summarize = (m: Meeting, transcript: string) =>
+    claude.ask(
+      `Resuma esta reuniao em portugues: decisoes, tarefas atribuidas (com responsavel) e pontos em aberto.\n\n${transcript}`,
+      cwdFor(m.projectId), `meeting:${m.id}:summary`, m.projectId);
+
+  ipcMain.handle('meetings:list', () => meetings.list());
+  ipcMain.handle('meetings:messages', (_, id: string) => meetings.messages(id));
+  ipcMain.handle('meetings:start', (_, p: Parameters<Meetings['start']>[0]) => meetings.start(p));
+  // Rodadas podem levar minutos: responde ja e entrega o progresso por eventos.
+  ipcMain.handle('meetings:say', (_, id: string, text: string, to?: AgentId | 'all') => {
+    meetings.say(id, text, to).catch((err) => console.error('meeting', err));
+  });
+  ipcMain.handle('meetings:requestTurn', (_, id: string, agentId: AgentId) => {
+    meetings.requestTurn(id, agentId).catch((err) => console.error('meeting', err));
+  });
+  ipcMain.handle('meetings:setPaused', (_, id: string, paused: boolean) => meetings.setPaused(id, paused));
+  ipcMain.handle('meetings:end', (_, id: string, doSummary = true) => meetings.end(id, summarize, doSummary));
+  ipcMain.handle('meetings:exportMarkdown', async (_, id: string) => {
+    const r = await dialog.showSaveDialog({ defaultPath: `reuniao-${id.slice(0, 8)}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, meetings.toMarkdown(id));
+    return r.filePath;
+  });
 
   app.on('before-quit', () => {
     claude.dispose();

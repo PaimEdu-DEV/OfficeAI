@@ -9,7 +9,7 @@ export default defineConfig({
       main: {
         entry: 'electron/main.ts',
         // O SDK localiza o executavel do Claude Code a partir da propria pasta: nao pode ser empacotado.
-        vite: { build: { rollupOptions: { external: ['@anthropic-ai/claude-agent-sdk'] } } },
+        vite: { build: { rollupOptions: { external: ['@anthropic-ai/claude-agent-sdk', 'zod'] } } },
       },
       preload: { input: 'electron/preload.ts' },
     }),

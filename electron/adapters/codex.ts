@@ -48,6 +48,24 @@ export class CodexAdapter {
     await runCodex(['queue', '--thread', this.thread, '--message', text]);
   }
 
+  // Delegacao vinda de outro agente: enfileira "[<from>]: tarefa" e espera o fim do turno
+  // do Codex que processou exatamente essa mensagem, devolvendo a resposta final real.
+  async delegate(from: string, task: string, timeoutMs = 15 * 60_000): Promise<string> {
+    if (!this.thread) throw new Error('Nenhuma sessao do Codex configurada.');
+    const text = `[${from}]: ${task}`;
+    const reply = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(text);
+        reject(new Error('Tempo esgotado esperando a resposta do Codex.'));
+      }, timeoutMs);
+      this.waiters.set(text, { resolve: (r) => (clearTimeout(timer), resolve(r)) });
+    });
+    await runCodex(['queue', '--thread', this.thread, '--message', text]);
+    return reply;
+  }
+
+  private waiters = new Map<string, { turnId?: string; resolve: (reply: string) => void }>();
+
   dispose() {
     clearInterval(this.timer);
   }
@@ -98,13 +116,24 @@ export class CodexAdapter {
     const base = { agentId: AGENT, ts: Date.parse(e.timestamp) || Date.now(), sessionId: this.thread };
     if (e.type === 'event_msg') {
       if (p.type === 'task_started') bus.setStatus(AGENT, 'thinking');
-      else if (p.type === 'task_complete') bus.setStatus(AGENT, 'idle');
+      else if (p.type === 'task_complete') {
+        bus.setStatus(AGENT, 'idle');
+        for (const [key, w] of this.waiters)
+          if (w.turnId && w.turnId === p.turn_id) {
+            this.waiters.delete(key);
+            w.resolve(p.last_agent_message ?? '');
+            if (p.last_agent_message)
+              bus.bridgeMessage({ id: `${p.turn_id}-reply`, ts: base.ts, from: 'codex', to: 'claude', text: p.last_agent_message });
+          }
+      }
       else if (p.type === 'token_count' && p.info?.last_token_usage)
         bus.agentEvent({ ...base, kind: 'usage', inputTokens: p.info.last_token_usage.input_tokens, outputTokens: p.info.last_token_usage.output_tokens });
       else if (p.type === 'item_completed' && p.item && !this.seen.has(p.item.id)) {
         this.seen.add(p.item.id);
         const text = (p.item.content ?? []).map((c: any) => c.text ?? '').join('');
         if (p.item.type === 'UserMessage') {
+          const waiter = this.waiters.get(text);
+          if (waiter && !waiter.turnId) waiter.turnId = p.turn_id;
           // Mensagens vindas do Claude pela ponte chegam como "[Claude]: ...".
           if (text.startsWith('[Claude]:'))
             bus.bridgeMessage({ id: p.item.id, ts: base.ts, from: 'claude', to: 'codex', text: text.slice(9).trim() });

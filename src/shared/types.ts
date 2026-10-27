@@ -69,6 +69,28 @@ export interface ProcessOutput { processId: string; stream: 'stdout' | 'stderr';
 
 export interface FileEntry { name: string; path: string; dir: boolean }
 
+export interface Meeting {
+  id: string;
+  goal: string;
+  projectId?: string;
+  participants: AgentId[];
+  state: 'active' | 'paused' | 'ended';
+  round: number;
+  maxRounds: number;      // limite de rodadas automaticas de discussao entre agentes
+  working: AgentId[];     // agentes processando uma chamada real neste momento
+  summary?: string;
+  createdAt: number;
+}
+
+export interface MeetingMessage {
+  id: string;
+  meetingId: string;
+  ts: number;
+  author: AgentId | 'user' | 'system';
+  to: AgentId | 'all';
+  text: string;
+}
+
 // API exposta em window.aiOffice pelo preload.
 export interface AiOfficeApi {
   agents: {
@@ -98,11 +120,25 @@ export interface AiOfficeApi {
   bridge: {
     timeline(): Promise<BridgeMessage[]>;
   };
+  meetings: {
+    list(): Promise<Meeting[]>;
+    messages(meetingId: string): Promise<MeetingMessage[]>;
+    start(m: { participants: AgentId[]; goal: string; projectId?: string; maxRounds?: number }): Promise<Meeting>;
+    // Mensagem do usuario para todos ou para um agente. Dispara chamadas reais aos agentes.
+    say(meetingId: string, text: string, to?: AgentId | 'all'): Promise<void>;
+    requestTurn(meetingId: string, agentId: AgentId): Promise<void>;
+    setPaused(meetingId: string, paused: boolean): Promise<void>;
+    // Encerra; com summarize=true pede ao Claude um resumo real das decisoes.
+    end(meetingId: string, summarize?: boolean): Promise<Meeting>;
+    exportMarkdown(meetingId: string): Promise<string | null>; // caminho salvo
+  };
   on(channel: 'agent-event', cb: (e: AgentEvent) => void): () => void;
   on(channel: 'agents-changed', cb: (a: AgentInfo[]) => void): () => void;
   on(channel: 'bridge-message', cb: (m: BridgeMessage) => void): () => void;
   on(channel: 'process-output', cb: (o: ProcessOutput) => void): () => void;
   on(channel: 'processes-changed', cb: (p: ManagedProcess[]) => void): () => void;
+  on(channel: 'meeting-changed', cb: (m: Meeting) => void): () => void;
+  on(channel: 'meeting-message', cb: (m: MeetingMessage) => void): () => void;
 }
 
 declare global {
