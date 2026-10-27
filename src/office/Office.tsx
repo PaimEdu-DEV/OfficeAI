@@ -6,14 +6,19 @@ import type { AgentInfo, AgentEvent, BridgeMessage } from "../shared/types";
 export default function Office({
   agents,
   onInteract,
+  controlsEnabled = true,
 }: {
   agents: AgentInfo[];
   onInteract: (event: Interaction) => void;
+  controlsEnabled?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null),
     scene = useRef<OfficeScene>();
   const callback = useRef(onInteract);
   callback.current = onInteract;
+  useEffect(() => {
+    if (scene.current) scene.current.controlsEnabled = controlsEnabled;
+  }, [controlsEnabled]);
   useEffect(() => {
     const office = new OfficeScene((event) => callback.current(event));
     scene.current = office;
