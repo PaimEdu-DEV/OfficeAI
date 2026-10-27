@@ -353,69 +353,104 @@ export function wallPixels(axis: "x" | "y", color: Palette, height: number) {
   }
   return p;
 }
+
+// 0..31 walk, 32..39 idle, 40..47 blink, 48..55 sit, 56..59 type, 60..63 wave, 64..71 seated blink.
+export const CHARACTER_FRAME_COUNT = 72;
 export function characterPixels(shirt: Palette, hair: string) {
-  const p = new Pixels(40 * 20, 64);
-  for (let direction = 0; direction < 5; direction++)
-    for (let f = 0; f < 4; f++) {
-      const x = (direction * 4 + f) * 40,
-        step = direction < 4 ? [0, 2, 0, -2][f] : 0,
-        bob = direction < 4 ? f % 2 : 0,
-        seated = direction === 4,
-        back = direction === 2 || direction === 3;
-      p.rect(x + 12, 44, 6, seated ? 6 : 12 + step, OUTLINE);
-      p.rect(x + 23, 44, 6, seated ? 6 : 12 - step, OUTLINE);
-      p.rect(x + 13, 45, 4, seated ? 4 : 9 + step, "#45556f");
-      p.rect(x + 24, 45, 4, seated ? 4 : 9 - step, "#45556f");
-      p.rect(x + 11, 54 + step, 9, 4, OUTLINE);
-      p.rect(x + 23, 54 - step, 9, 4, OUTLINE);
-      if (seated) {
-        p.rect(x + 10, 47, 10, 5, "#45556f");
-        p.rect(x + 24, 47, 10, 5, "#45556f");
-      }
-      p.rect(x + 10, 27 + bob, 20, 20, OUTLINE);
-      p.rect(x + 11, 28 + bob, 18, 17, shirt.left);
-      p.rect(x + 12, 28 + bob, 8, 15, shirt.top);
-      p.rect(x + 27, 29 + bob, 2, 16, shirt.right);
-      p.rect(x + 16, 27 + bob, 8, 3, "#f2c6a1");
-      p.rect(x + 18, 30 + bob, 3, 13, shirt.right);
-      p.pixel(x + 19, 35 + bob, "#fff1da");
-      const arm = seated ? 3 + (f % 2) * 2 : step;
-      p.rect(x + 7, 29 + bob, 5, 13 + arm, OUTLINE);
-      p.rect(x + 8, 30 + bob, 3, 9, shirt.top);
-      p.rect(x + 8, 39 + arm + bob, 4, 4, "#edbc98");
-      p.rect(x + 29, 29 + bob, 5, 13 - arm, OUTLINE);
-      p.rect(x + 30, 30 + bob, 3, 8, shirt.right);
-      p.rect(x + 29, 39 - arm + bob, 4, 4, "#e3ab88");
-      if (seated) {
-        p.rect(x + 5, 37 + (f % 2), 8, 4, "#f1c4a0");
-        p.rect(x + 29, 36 + ((f + 1) % 2), 8, 4, "#f1c4a0");
-      }
-      p.rect(x + 10, 5 + bob, 21, 20, OUTLINE);
-      p.rect(x + 9, 9 + bob, 23, 12, OUTLINE);
-      p.rect(x + 11, 7 + bob, 18, 16, "#f4d0ad");
-      p.rect(x + 27, 9 + bob, 3, 13, "#dfad89");
-      p.rect(x + 13, 23 + bob, 15, 3, "#c78c70");
-      p.rect(x + 11, 4 + bob, 19, 7, hair);
-      p.rect(x + 9, 8 + bob, 5, 8, hair);
-      p.rect(x + 27, 7 + bob, 4, 7, hair);
-      p.rect(x + 13, 3 + bob, 13, 3, hair);
-      p.rect(x + 13, 5 + bob, 10, 2, "#73605b");
-      p.rect(x + 12, 10 + bob, 4, 3, hair);
-      if (back) {
-        p.rect(x + 11, 9 + bob, 18, 13, hair);
-        p.rect(x + 13, 20 + bob, 13, 3, hair);
-        p.rect(x + 13, 11 + bob, 2, 7, "#73605b");
-      } else {
-        const face = direction === 0 ? 2 : -2;
-        p.rect(x + 16 + face, 14 + bob, 2, 3, OUTLINE);
-        p.rect(x + 24 + face, 14 + bob, 2, 3, OUTLINE);
-        p.pixel(x + 16 + face, 14 + bob, "#fffaf0");
-        p.pixel(x + 24 + face, 14 + bob, "#fffaf0");
-        p.rect(x + 21 + face, 18 + bob, 2, 2, "#cf9476");
-        p.rect(x + 20 + face, 22 + bob, 4, 1, "#a86757");
-        p.pixel(x + 13 + face, 19 + bob, "#e9aa91");
-      }
+  const p = new Pixels(40 * CHARACTER_FRAME_COUNT, 64);
+  for (let frame = 0; frame < CHARACTER_FRAME_COUNT; frame++) {
+    const walking = frame < 32,
+      blink = (frame >= 40 && frame < 48) || frame >= 64,
+      sitting = (frame >= 48 && frame < 60) || frame >= 64,
+      typing = frame >= 56 && frame < 60,
+      waving = frame >= 60 && frame < 64;
+    const direction =
+        frame >= 64
+          ? frame - 64
+          : walking
+            ? Math.floor(frame / 4)
+            : frame < 56
+              ? (frame - 32) % 8
+              : 1,
+      f = frame % 4,
+      x = frame * 40;
+    const step = walking ? [0, 2, 0, -2][f] : 0,
+      bob = walking ? f % 2 : 0;
+    const back = [4, 5, 6].includes(direction),
+      side = [3, 7].includes(direction),
+      face = [0, 7, 6].includes(direction)
+        ? 3
+        : [2, 3, 4].includes(direction)
+          ? -3
+          : 0;
+    // Short body, oversized head, clean single-pixel silhouettes.
+    const legY = sitting ? 44 : 43;
+    p.rect(x + 12, legY, 6, sitting ? 6 : 11 + step, OUTLINE);
+    p.rect(x + 23, legY, 6, sitting ? 6 : 11 - step, OUTLINE);
+    p.rect(x + 13, legY, 4, sitting ? 5 : 8 + step, "#4b5870");
+    p.rect(x + 24, legY, 4, sitting ? 5 : 8 - step, "#3b465e");
+    p.rect(x + 10, 52 + step - (sitting ? 3 : 0), 10, 4, OUTLINE);
+    p.rect(x + 23, 52 - step - (sitting ? 3 : 0), 10, 4, OUTLINE);
+    p.rect(x + 10, 29 + bob, 20, 15, OUTLINE);
+    p.rect(x + 11, 30 + bob, 18, 12, shirt.left);
+    p.rect(x + 12, 30 + bob, 8, 11, shirt.top);
+    p.rect(x + 27, 30 + bob, 2, 12, shirt.right);
+    p.rect(x + 16, 28 + bob, 8, 4, "#eebf9b");
+    p.rect(x + 18, 32 + bob, 3, 10, shirt.right);
+    p.pixel(x + 19, 36 + bob, "#fff5db");
+    const arm = typing ? 1 + (f % 2) * 2 : step;
+    p.rect(x + 6, 31 + bob, 6, 10 + arm, OUTLINE);
+    p.rect(x + 7, 32 + bob, 4, 7, shirt.top);
+    p.rect(x + 7, 39 + arm + bob, 4, 4, "#efbd98");
+    if (waving) {
+      p.rect(x + 29, 20 + (f % 2) * 2, 5, 15, OUTLINE);
+      p.rect(x + 30, 24 + (f % 2) * 2, 3, 10, shirt.right);
+      p.rect(x + 29, 19 + (f % 2) * 2, 5, 6, "#f3caa6");
+    } else {
+      p.rect(x + 29, 31 + bob, 5, 11 - arm, OUTLINE);
+      p.rect(x + 30, 32 + bob, 3, 7, shirt.right);
+      p.rect(x + 29, 39 - arm + bob, 4, 4, "#e2aa87");
     }
+    if (typing) {
+      p.rect(x + 5, 38 + (f % 2), 9, 4, "#f1c5a1");
+      p.rect(x + 28, 37 + ((f + 1) % 2), 9, 4, "#f1c5a1");
+    }
+    p.rect(x + 9, 6 + bob, 23, 21, OUTLINE);
+    p.rect(x + 8, 10 + bob, 25, 13, OUTLINE);
+    p.rect(x + 10, 8 + bob, 20, 17, "#f5d0ac");
+    p.rect(x + 28, 10 + bob, 3, 14, "#dfac88");
+    p.rect(x + 12, 25 + bob, 16, 3, "#ce9779");
+    p.rect(x + 10, 5 + bob, 21, 7, hair);
+    p.rect(x + 8, 9 + bob, 5, 9, hair);
+    p.rect(x + 28, 8 + bob, 5, 8, hair);
+    p.rect(x + 12, 4 + bob, 16, 3, hair);
+    p.rect(x + 13, 6 + bob, 10, 2, "#867064");
+    if (hair === "#3d3942") {
+      p.rect(x + 11, 3 + bob, 7, 5, hair);
+      p.rect(x + 16, 2 + bob, 7, 5, hair);
+      p.rect(x + 25, 8 + bob, 5, 6, hair);
+    } else if (hair === "#69493c") {
+      p.rect(x + 7, 8 + bob, 4, 5, hair);
+      p.rect(x + 13, 3 + bob, 4, 4, hair);
+      p.rect(x + 22, 3 + bob, 5, 5, hair);
+    }
+    if (back) {
+      p.rect(x + 10, 10 + bob, 21, 14, hair);
+      p.rect(x + 13, 22 + bob, 14, 4, hair);
+      p.rect(x + 12, 11 + bob, 2, 8, "#756156");
+      if (direction === 4) p.rect(x + 29, 19 + bob, 3, 5, "#dfac88");
+      if (direction === 6) p.rect(x + 8, 19 + bob, 3, 5, "#f5d0ac");
+    } else {
+      const eyes = side ? [direction === 7 ? 26 : 13] : [15 + face, 24 + face];
+      for (const eye of eyes) {
+        p.rect(x + eye, 16 + bob, 2, blink ? 1 : 3, OUTLINE);
+        if (!blink) p.pixel(x + eye, 16 + bob, "#fff9e9");
+      }
+      p.rect(x + 20 + face, 21 + bob, 2, 2, "#cf9577");
+      p.rect(x + 19 + face, 25 + bob, 4, 1, "#a86958");
+      p.pixel(x + 12 + face, 21 + bob, "#e9aa91");
+    }
+  }
   return p;
 }
 export function buildTextures(scene: Phaser.Scene) {
@@ -467,7 +502,7 @@ export function buildTextures(scene: Phaser.Scene) {
   ] as const) {
     add(`actor-${name}`, characterPixels(pal, hair));
     const texture = scene.textures.get(`actor-${name}`);
-    for (let frame = 0; frame < 20; frame++)
+    for (let frame = 0; frame < CHARACTER_FRAME_COUNT; frame++)
       texture.add(frame, 0, frame * 40, 0, 40, 64);
   }
   const shadow = new Pixels(48, 20);

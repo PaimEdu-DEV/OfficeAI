@@ -212,10 +212,12 @@ export const textWidth = (text: string) =>
 export function labelTexture(text: string, bubble = false) {
   const lines: string[] = [];
   for (const line of text.split("\n")) {
-    const words = line.split(" ");
+    const words = line
+      .split(" ")
+      .flatMap((word) => word.match(/.{1,32}/g) ?? [""]);
     let row = "";
     for (const word of words) {
-      if (row.length + word.length > 34) {
+      if (row && row.length + word.length + 1 > 34) {
         lines.push(row);
         row = "";
       }

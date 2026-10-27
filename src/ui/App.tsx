@@ -1,28 +1,81 @@
 ﻿import { useEffect, useState } from "react";
-import type { AgentEvent, AgentInfo, Project } from "../shared/types";
+import type { AgentInfo, Project } from "../shared/types";
 import Office from "../office/Office";
 import { statusLabels } from "../office/OfficeScene";
 import AgentPanel from "./AgentPanel";
-import MeetingPanel from "./panels/MeetingPanel";
 import ProjectPanel from "./ProjectPanel";
 import ExecutionPanel from "./ExecutionPanel";
+import MeetingPanel from "./panels/MeetingPanel";
+import FloatingWindow from "./FloatingWindow";
 import "./styles.css";
 import "./panels/panels.css";
+import "./game.css";
 const offline: AgentInfo[] = ["claude", "codex"].map((id) => ({
   id,
   name: id === "claude" ? "Claude" : "Codex",
   status: "disconnected",
   capabilities: [],
 }));
+type WindowId = "agents" | "projects" | "execution" | "meeting" | "chat";
+function DockIcon({ kind }: { kind: WindowId }) {
+  const paths: Record<WindowId, string> = {
+    agents: "M4 4h6v7H4z M14 4h6v7h-6z M2 14h10v7H2z M14 14h8v7h-8z",
+    projects: "M2 7h7V4h6v3h7v14H2z M5 11h14",
+    execution: "M5 6l6 6-6 6 M13 19h7",
+    meeting: "M3 7h18v10H3z M6 2v3 M18 2v3 M6 19v3 M18 19v3",
+    chat: "M3 3h18v14h-9l-6 5v-5H3z M7 8h10 M7 12h7",
+  };
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="27"
+      height="27"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="miter"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+    >
+      <path d={paths[kind]} />
+    </svg>
+  );
+}
 export default function App() {
   const [agents, setAgents] = useState<AgentInfo[]>(offline),
-    [selected, setSelected] = useState<string>(),
     [projects, setProjects] = useState<Project[]>([]),
     [projectId, setProjectId] = useState(""),
-    [error, setError] = useState(""),
-    [meeting, setMeeting] = useState(false),
-    [tool, setTool] = useState<"projects" | "execution" | undefined>(),
-    [count, setCount] = useState(0);
+    [selected, setSelected] = useState("claude"),
+    [error, setError] = useState("");
+  const [open, setOpen] = useState<Record<WindowId, boolean>>({
+    agents: false,
+    projects: false,
+    execution: false,
+    meeting: false,
+    chat: false,
+  });
+  const [layers, setLayers] = useState<Record<WindowId, number>>({
+    agents: 20,
+    projects: 21,
+    execution: 22,
+    meeting: 23,
+    chat: 24,
+  });
+  const front = (id: WindowId) =>
+    setLayers((old) => ({ ...old, [id]: Math.max(...Object.values(old)) + 1 }));
+  const show = (id: WindowId) => {
+    setOpen((old) => ({ ...old, [id]: true }));
+    front(id);
+  };
+  const close = (id: WindowId) => setOpen((old) => ({ ...old, [id]: false }));
+  const toggle = (id: WindowId) => {
+    if (open[id]) close(id);
+    else show(id);
+  };
+  const chat = (id: string) => {
+    setSelected(id);
+    show("chat");
+  };
   useEffect(() => {
     const api = window.aiOffice;
     if (!api) return;
@@ -32,12 +85,12 @@ export default function App() {
       received = true;
       setAgents(list);
     });
-    const ev = api.on("agent-event", (e: AgentEvent) => {
-      setCount((n) => n + 1);
+    const eventOff = api.on("agent-event", (e) => {
       if (e.kind === "status")
         setAgents((old) =>
           old.map((a) => (a.id === e.agentId ? { ...a, status: e.status } : a)),
         );
+      if (e.kind === "approval_request") chat(e.agentId);
     });
     void api.agents
       .list()
@@ -61,260 +114,221 @@ export default function App() {
     return () => {
       live = false;
       off();
-      ev();
+      eventOff();
     };
   }, []);
-  async function openProject() {
-    try {
-      const dir = await window.aiOffice.projects.pickDirectory();
-      if (!dir) return;
-      const p = await window.aiOffice.projects.open(dir);
-      setProjects((old) => [...old.filter((x) => x.id !== p.id), p]);
-      setProjectId(p.id);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-  const agent = agents.find((a) => a.id === selected);
-  const registerProject = (p: Project) => {
+  const register = (p: Project) => {
     setProjects((old) => [...old.filter((item) => item.id !== p.id), p]);
     setProjectId(p.id);
   };
+  const agent = agents.find((a) => a.id === selected) ?? agents[0];
+  const windowProps = (id: WindowId) => ({
+    id,
+    open: open[id],
+    onClose: () => close(id),
+    onFocus: () => front(id),
+    z: layers[id],
+  });
   return (
-    <main className="app">
-      <header>
-        <div className="brand">
-          <span className="brand-mark">◈</span>
-          <div>
-            <strong>AI OFFICE</strong>
-            <small>Seu time. No mesmo espaço.</small>
-          </div>
-        </div>
-        <div className="project-picker">
-          <span className="muted">WORKSPACE</span>
-          <select
-            aria-label="Projeto ativo"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="">Nenhum projeto aberto</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button
-            className="quiet"
-            disabled={!window.aiOffice}
-            onClick={() => void openProject()}
-          >
-            Abrir pasta ↗
-          </button>
-          <button
-            className={
-              tool === "projects" ? "tool-toggle active" : "tool-toggle"
-            }
-            onClick={() =>
-              setTool(tool === "projects" ? undefined : "projects")
-            }
-          >
-            Projetos
-          </button>
-          <button
-            className={
-              tool === "execution" ? "tool-toggle active" : "tool-toggle"
-            }
-            onClick={() =>
-              setTool(tool === "execution" ? undefined : "execution")
-            }
-          >
-            Execução
-          </button>
-          <button
-            className={meeting ? "tool-toggle active" : "tool-toggle"}
-            disabled={!window.aiOffice}
-            onClick={() => {
-              setMeeting(!meeting);
-              setSelected(undefined);
-              setTool(undefined);
-            }}
-          >
-            Reunião
-          </button>
-        </div>
-        <span className="connection">
-          <i className={window.aiOffice ? "online" : ""} />
-          {window.aiOffice ? "Ponte conectada" : "Desconectado"}
+    <main className="game-app">
+      <Office
+        agents={agents}
+        onInteract={(e) =>
+          e.kind === "meeting" ? show("meeting") : chat(e.agentId ?? selected)
+        }
+      />
+      <div className="world-badge">
+        <span className="world-logo">◈</span>
+        <span>
+          AI OFFICE
+          <small>
+            <i className={window.aiOffice ? "connected" : ""} />
+            {window.aiOffice ? "Escritório conectado" : "Desconectado"}
+          </small>
         </span>
-      </header>
+      </div>
       {error && (
-        <div className="error-banner" role="alert">
+        <div className="game-error" role="alert">
           {error}
-          <button onClick={() => setError("")}>×</button>
+          <button aria-label="Fechar erro" onClick={() => setError("")}>
+            ×
+          </button>
         </div>
       )}
-      <div className="workspace">
-        <aside className="sidebar">
-          <div className="section-label">
-            SEU TIME <span>{agents.length.toString().padStart(2, "0")}</span>
-          </div>
-          <p className="aside-note">
-            Um clique para conversar.
-            <br />
-            Um espaço para construir.
-          </p>
-          <nav aria-label="Agentes">
-            {agents.map((a) => (
-              <button
-                key={a.id}
-                className={`agent-card ${selected === a.id ? "selected" : ""}`}
-                onClick={() => {
-                  setSelected(a.id);
-                  setMeeting(false);
-                  setTool(undefined);
-                }}
-              >
-                <span className={`avatar ${a.id}`}>{a.name[0]}</span>
-                <span className="agent-copy">
-                  <strong>{a.name}</strong>
-                  <small>
-                    {a.id === "claude"
-                      ? "Direção & estratégia"
-                      : "Engenharia & execução"}
-                  </small>
-                  <span className={`status ${a.status}`}>
-                    ● {statusLabels[a.status]}
-                  </span>
+      <FloatingWindow
+        {...windowProps("agents")}
+        title="Seu time"
+        color="coral"
+        width={340}
+        height={400}
+      >
+        <div className="agent-directory">
+          <p>Escolha um agente para conversar ou encontre-o pelo escritório.</p>
+          {agents.map((a) => (
+            <button
+              className="agent-card"
+              key={a.id}
+              onClick={() => chat(a.id)}
+            >
+              <span className={`avatar ${a.id}`}>{a.name[0]}</span>
+              <span className="agent-copy">
+                <strong>{a.name}</strong>
+                <span className={`status ${a.status}`}>
+                  ● {statusLabels[a.status]}
                 </span>
-                <span className="arrow">↗</span>
-              </button>
-            ))}
-          </nav>
-          <div className="future-slot">
-            ＋
-            <span>
-              Espaço para novas ideias
-              <small>Salas reservadas para futuros agentes</small>
-            </span>
-          </div>
-          <div className="sidebar-bottom">
-            <span className="section-label">ATIVIDADE REAL</span>
-            <p>
-              {count
-                ? `${count} eventos recebidos nesta sessão`
-                : "Aguardando atividade dos agentes"}
-            </p>
-            <span className="live-line">
-              ◌ Eventos sincronizados pela ponte
-            </span>
-          </div>
-        </aside>
-        <section className="office-area">
-          <div className="scene-title">
-            <div>
-              <span className="eyebrow">ESPAÇO COMPARTILHADO</span>
-              <h1>Boas ideias têm um lugar.</h1>
-              <p>Explore o escritório e encontre seu próximo passo.</p>
-            </div>
-            <span className="scene-badge">◈ ISOMETRIC OFFICE</span>
-          </div>
-          <Office
-            agents={agents}
-            controlsEnabled={!tool}
-            onInteract={(e) => {
-              if (e.kind === "meeting") {
-                setMeeting(true);
-                setSelected(undefined);
-              } else {
-                setSelected(e.agentId);
-                setMeeting(false);
-              }
-            }}
-          />
-          <div className="scene-bottom">
-            <span>
-              <kbd>W</kbd>
-              <kbd>A</kbd>
-              <kbd>S</kbd>
-              <kbd>D</kbd> mover <b>·</b> Clique para navegar <b>·</b>{" "}
-              <kbd>E</kbd> interagir
-            </span>
-            <span>Todos os agentes, no mesmo lugar</span>
-          </div>
-        </section>
-        {agent && (
-          <AgentPanel
-            key={`${agent.id}:${projectId}`}
-            agent={agent}
-            projectId={projectId}
-            onClose={() => setSelected(undefined)}
-          />
-        )}
-        {meeting && window.aiOffice && (
+              </span>
+              <span>→</span>
+            </button>
+          ))}
+          <p className="offline-note">
+            {window.aiOffice
+              ? "Atividade sincronizada com os agentes reais."
+              : "A ponte não está disponível nesta janela."}
+          </p>
+        </div>
+      </FloatingWindow>
+      <FloatingWindow
+        {...windowProps("projects")}
+        title="Projetos & arquivos"
+        color="green"
+        width={1030}
+        height={650}
+      >
+        <div className="project-select">
+          <label>
+            Projeto ativo{" "}
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              <option value="">Selecione um projeto</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <ProjectPanel
+          projects={projects}
+          projectId={projectId}
+          agents={agents}
+          onProject={register}
+          onSelect={setProjectId}
+        />
+      </FloatingWindow>
+      <FloatingWindow
+        {...windowProps("execution")}
+        title="Execução & preview"
+        color="blue"
+        width={1030}
+        height={650}
+      >
+        <div className="project-select">
+          <label>
+            Executar no projeto{" "}
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              <option value="">Selecione um projeto</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <ExecutionPanel
+          projectId={projectId}
+          projects={projects}
+          visible={open.execution}
+        />
+      </FloatingWindow>
+      <FloatingWindow
+        {...windowProps("meeting")}
+        title="Sala de reunião"
+        color="gold"
+        width={760}
+        height={650}
+      >
+        {window.aiOffice ? (
           <MeetingPanel
             agents={agents}
             projectId={projectId}
-            onClose={() => setMeeting(false)}
+            onClose={() => close("meeting")}
           />
-        )}
-        <section
-          className="tools-workbench"
-          hidden={!tool}
-          aria-label={
-            tool === "projects" ? "Painel de projetos" : "Painel de execução"
-          }
-        >
-          <div className="tools-heading">
-            <div className="tabs">
-              <button
-                className={tool === "projects" ? "active" : ""}
-                onClick={() => setTool("projects")}
-              >
-                ◇ Projetos
-              </button>
-              <button
-                className={tool === "execution" ? "active" : ""}
-                onClick={() => setTool("execution")}
-              >
-                ❯ Execução
-              </button>
-            </div>
-            <button
-              className="quiet"
-              aria-label="Voltar ao escritório"
-              onClick={() => setTool(undefined)}
-            >
-              Voltar ao escritório ×
-            </button>
+        ) : (
+          <div className="empty-state">
+            Desconectado. Conecte a ponte para iniciar uma reunião real.
           </div>
-          {tool === "projects" && (
-            <ProjectPanel
-              projects={projects}
+        )}
+      </FloatingWindow>
+      <FloatingWindow
+        {...windowProps("chat")}
+        title={agent ? `Conversa com ${agent.name}` : "Conversa"}
+        color="blue"
+        width={460}
+        height={620}
+      >
+        {agent ? (
+          <>
+            <div className="chat-switcher">
+              {agents.map((a) => (
+                <button
+                  key={a.id}
+                  className={selected === a.id ? "active" : ""}
+                  onClick={() => setSelected(a.id)}
+                >
+                  {a.name}
+                </button>
+              ))}
+            </div>
+            <AgentPanel
+              key={`${agent.id}:${projectId}`}
+              agent={agent}
               projectId={projectId}
-              agents={agents}
-              onProject={registerProject}
-              onSelect={setProjectId}
+              onClose={() => close("chat")}
             />
-          )}
-          <ExecutionPanel
-            projectId={projectId}
-            projects={projects}
-            visible={tool === "execution"}
-          />
-        </section>
-      </div>
-      <footer>
-        <span>
-          AI OFFICE <b>/</b> COLLABORATIVE WORKSPACE
+          </>
+        ) : (
+          <div className="empty-state">Nenhum agente conectado.</div>
+        )}
+      </FloatingWindow>
+      <nav className="game-dock" aria-label="Ferramentas do escritório">
+        {(
+          [
+            ["agents", "Agentes"],
+            ["projects", "Projetos"],
+            ["execution", "Execução"],
+            ["meeting", "Reunião"],
+            ["chat", "Chat"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`dock-item dock-${id} ${open[id] ? "active" : ""}`}
+            aria-pressed={open[id]}
+            onClick={() => toggle(id)}
+          >
+            <DockIcon kind={id} />
+            <span>{label}</span>
+            {id === "agents" && (
+              <b>{agents.filter((a) => a.status !== "disconnected").length}</b>
+            )}
+          </button>
+        ))}
+        <div className="dock-divider" />
+        <span
+          className="dock-project"
+          title={projects.find((p) => p.id === projectId)?.path}
+        >
+          <small>WORKSPACE</small>
+          {projects.find((p) => p.id === projectId)?.name ?? "Sem projeto"}
         </span>
-        <span>
-          {agents.filter((a) => a.status !== "disconnected").length} agentes
-          conectados <b>·</b>{" "}
-          {projects.find((p) => p.id === projectId)?.path ??
-            "Abra um projeto para acessar arquivos"}
-        </span>
-      </footer>
+      </nav>
     </main>
   );
 }

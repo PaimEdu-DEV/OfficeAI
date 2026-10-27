@@ -76,7 +76,7 @@ export default function FileEditor({
           path={`${projectId}/${path}`}
           language={language}
           value={content}
-          theme="vs-dark"
+          theme="vs"
           options={{
             readOnly: true,
             minimap: { enabled: false },

@@ -1,8 +1,21 @@
 ﻿import Phaser from "phaser";
-import type { AgentInfo, AgentStatus } from "../shared/types";
-import { blocked, Cell, COLS, key, pathfind, ROWS, walkable } from "./grid";
-import { buildTextures, Prop } from "./art";
-import { labelTexture } from "./pixels";
+import type { AgentEvent, AgentInfo, AgentStatus } from "../shared/types";
+import { buildTextures } from "./art";
+import {
+  blocked,
+  canStep,
+  Cell,
+  COLS,
+  key,
+  neighbors,
+  pathfind,
+  resetGrid,
+  ROWS,
+  walkable,
+} from "./grid";
+import { drawOffice, Seat } from "./layout";
+import { labelTexture, Pixels } from "./pixels";
+import { ChoreographyQueue, VisualJob } from "./choreography";
 export type Interaction = {
   kind: "chat" | "workstation" | "meeting";
   agentId?: string;
@@ -42,259 +55,275 @@ type Actor = {
   indicator?: Phaser.GameObjects.Image;
   status: AgentStatus;
   moving: boolean;
+  movingTo?: Cell;
   direction: number;
+  seated: boolean;
+  showNameUntil: number;
+  waveUntil: number;
+  stepStart: number;
 };
+type Bubble = {
+  actor: Actor;
+  image: Phaser.GameObjects.Image;
+  texture: string;
+  born: number;
+};
+const directions = [
+  { x: 1, y: 0 },
+  { x: 1, y: 1 },
+  { x: 0, y: 1 },
+  { x: -1, y: 1 },
+  { x: -1, y: 0 },
+  { x: -1, y: -1 },
+  { x: 0, y: -1 },
+  { x: 1, y: -1 },
+];
 export class OfficeScene extends Phaser.Scene {
   controlsEnabled = true;
   private player!: Actor;
   private agents = new Map<string, Actor>();
+  private seats = new Map<string, Seat>();
   private route: Cell[] = [];
+  private destinationSeat?: string;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private prompt!: Phaser.GameObjects.Image;
+  private highlight!: Phaser.GameObjects.Image;
+  private hovered?: Actor;
   private promptKey = "";
   private target?: Interaction;
   private pending: AgentInfo[] = [];
-  private visits = new Set<string>();
+  private queue = new ChoreographyQueue();
+  private processing = false;
+  private visiting = new Set<string>();
+  private bubbles: Bubble[] = [];
   private ambient: {
     sprite: Phaser.GameObjects.Image;
     kind: string;
     offset: number;
   }[] = [];
   private ambientTick = -1;
-  private drag?: { x: number; y: number; scrollX: number; scrollY: number };
+  private drag?: {
+    x: number;
+    y: number;
+    scrollX: number;
+    scrollY: number;
+    button: number;
+    pick?: Phaser.GameObjects.GameObject;
+    canPan: boolean;
+  };
   private dragging = false;
-  private following = false;
   private sequence = 0;
+  private alive = false;
   constructor(private interact: (event: Interaction) => void) {
     super("office");
   }
   private iso(p: Cell) {
     return { x: (p.x - p.y) * 32, y: (p.x + p.y) * 16 + 16 };
   }
+  private cellAt(p: Phaser.Math.Vector2): Cell {
+    return {
+      x: Math.floor((p.x / 32 + p.y / 16) / 2),
+      y: Math.floor((p.y / 16 - p.x / 32) / 2),
+    };
+  }
   create() {
-    this.cameras.main.setBackgroundColor("#17384e");
-    this.cameras.main.roundPixels = true;
+    this.alive = true;
+    resetGrid();
     buildTextures(this);
-    this.drawBuilding();
+    drawOffice(this, this.seats, this.ambient);
+    const camera = this.cameras.main;
+    camera
+      .setBackgroundColor("#79adbd")
+      .setBounds(
+        -ROWS * 32 - 192,
+        -180,
+        (COLS + ROWS) * 32 + 384,
+        (COLS + ROWS) * 16 + 400,
+      );
+    camera.roundPixels = true;
     this.player = this.actor("user", { x: 6, y: 5 });
     this.agents.set("claude", this.actor("claude", { x: 4, y: 5 }));
     this.agents.set("codex", this.actor("codex", { x: 19, y: 5 }));
+    const tile = new Pixels(64, 32);
+    tile.poly(
+      [
+        [31, 0],
+        [63, 16],
+        [31, 31],
+        [0, 16],
+      ],
+      "#fff6ab",
+      "#f8ffef",
+    );
+    for (let i = 3; i < tile.data.length; i += 4)
+      if (tile.data[i]) tile.data[i] = 100;
+    this.textures.addCanvas("tile-hover", tile.canvas());
+    this.highlight = this.add
+      .image(0, 0, "tile-hover")
+      .setOrigin(0.5, 0)
+      .setDepth(-1700)
+      .setVisible(false);
     this.prompt = this.add
       .image(0, 0, "name-user")
-      .setVisible(false)
       .setDepth(100000)
-      .setOrigin(0.5, 0);
+      .setOrigin(0.5, 0)
+      .setVisible(false);
     this.keys = this.input.keyboard!.addKeys(
-      "W,A,S,D,E,UP,DOWN,LEFT,RIGHT",
+      "W,A,S,D,E,UP,DOWN,LEFT,RIGHT,SPACE",
     ) as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.keyboard!.disableGlobalCapture();
+    this.input.mouse!.disableContextMenu();
+    this.game.canvas.tabIndex = 0;
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      this.game.canvas.focus({ preventScroll: true });
+      const pick = this.input
+        .hitTestPointer(p)
+        .find(
+          (o) =>
+            o.getData("actor") || o.getData("seat") || o.getData("chatAgent"),
+        );
       this.drag = {
         x: p.x,
         y: p.y,
-        scrollX: this.cameras.main.scrollX,
-        scrollY: this.cameras.main.scrollY,
+        scrollX: camera.scrollX,
+        scrollY: camera.scrollY,
+        button: p.button,
+        pick,
+        canPan: p.button !== 0 || !pick,
       };
       this.dragging = false;
     });
     this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
       if (!p.isDown || !this.drag) return;
-      if (Phaser.Math.Distance.Between(p.x, p.y, this.drag.x, this.drag.y) > 5)
+      if (
+        this.drag.canPan &&
+        Phaser.Math.Distance.Between(p.x, p.y, this.drag.x, this.drag.y) > 6
+      )
         this.dragging = true;
       if (this.dragging) {
-        this.following = false;
-        this.cameras.main.setScroll(
-          this.drag.scrollX - (p.x - this.drag.x) / this.cameras.main.zoom,
-          this.drag.scrollY - (p.y - this.drag.y) / this.cameras.main.zoom,
+        camera.stopFollow();
+        camera.setScroll(
+          this.drag.scrollX - (p.x - this.drag.x) / camera.zoom,
+          this.drag.scrollY - (p.y - this.drag.y) / camera.zoom,
         );
       }
     });
     this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
-      if (!this.dragging && this.controlsEnabled) {
-        const pos = this.cameras.main.getWorldPoint(p.x, p.y);
-        const cell = {
-          x: Math.floor((pos.x / 32 + pos.y / 16) / 2),
-          y: Math.floor((pos.y / 16 - pos.x / 32) / 2),
-        };
-        this.route = pathfind(this.player.cell, cell);
-        if (this.route.length) this.following = true;
-      }
+      const drag = this.drag;
       this.drag = undefined;
-      this.dragging = false;
+      if (
+        !drag ||
+        this.dragging ||
+        drag.button !== 0 ||
+        !this.controlsEnabled
+      ) {
+        this.dragging = false;
+        return;
+      }
+      const object = drag.pick;
+      if (object?.getData("chatAgent")) {
+        this.interact({ kind: "chat", agentId: object.getData("chatAgent") });
+        return;
+      }
+      if (object?.getData("actor")) {
+        const id = object.getData("actor") as string;
+        const a = id === "user" ? this.player : this.agents.get(id);
+        if (a) {
+          a.showNameUntil = this.time.now + 3500;
+          if (id === "user") a.waveUntil = this.time.now + 1200;
+          else this.interact({ kind: "chat", agentId: id });
+        }
+        return;
+      }
+      const seatKey = object?.getData("seat") as string | undefined;
+      const cell = seatKey
+        ? this.seats.get(seatKey)!.cell
+        : this.cellAt(camera.getWorldPoint(p.x, p.y));
+      this.walkTo(cell, !!seatKey);
     });
     this.input.on(
       "wheel",
-      (_p: unknown, _o: unknown, _dx: number, dy: number) =>
-        this.setZoom(dy < 0 ? 3 : 2),
+      (p: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) =>
+        this.setZoom(camera.zoom + (dy < 0 ? 1 : -1), p),
     );
-    this.scale.on("resize", () => {
-      const c = this.cameras.main;
-      c.centerOn(c.midPoint.x, c.midPoint.y);
+    this.scale.on("resize", () => this.clampCamera());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.alive = false;
+      this.queue.clear();
+      this.bubbles = [];
     });
     this.setZoom(2);
-    this.focusRoom(0);
+    this.focusPlayer();
     this.setAgents(this.pending);
   }
-  private drawBuilding() {
-    // Floor sprites stay below the y-sorted wall, furniture and character layers.
-    for (let y = 0; y < ROWS; y++)
-      for (let x = 0; x < COLS; x++) {
-        const p = this.iso({ x, y });
-        let material = "cream";
-        if (x < 8) material = y < 8 ? "wood" : y < 14 ? "lilac" : "wood";
-        else if (x > 15) material = y < 8 ? "wood" : y < 14 ? "mint" : "wood";
-        if (x > 1 && x < 7 && y > 2 && y < 7) material = "coral";
-        if (x > 16 && x < 22 && y > 2 && y < 7) material = "blue";
-        if (x > 8 && x < 15 && y < 8) material = "cream";
-        this.add
-          .image(p.x, p.y - 16, `floor-${material}-${(x + y) % 3}`)
-          .setOrigin(0.5, 0)
-          .setDepth(-2000);
-        // Thick foundation visible along the cutaway edges.
-        if (y === ROWS - 1 || x === COLS - 1)
-          this.add
-            .image(p.x, p.y, "wall-cream-x-8")
-            .setOrigin(0.5, 148 / 192)
-            .setDepth(-1900);
-      }
-    for (let y = 0; y < ROWS; y++)
-      for (let x = 0; x < COLS; x++)
-        if (blocked.has(key({ x, y }))) {
-          const p = this.iso({ x, y }),
-            axis = x === 0 || x === 8 || x === 15 || x === COLS - 1 ? "y" : "x";
-          const color = x < 8 ? "coral" : x < 15 ? "mint" : "blue";
-          const height =
-            x === 0 || y === 0 ? 76 : x === COLS - 1 || y === ROWS - 1 ? 8 : 28;
-          this.add
-            .image(p.x, p.y, `wall-${color}-${axis}-${height}`)
-            .setOrigin(0.5, 148 / 192)
-            .setDepth(p.y);
-        }
-    this.prop("books", 2, 1);
-    this.prop("window", 5, 0, false);
-    this.prop("picture", 1, 2, false);
-    this.prop("executive", 4, 4);
-    this.occupy(3, 3, 3, 2);
-    this.prop("chair", 4, 5, false);
-    this.prop("plant", 1, 6);
-    this.prop("lamp", 7, 2);
-    this.prop("plant", 7, 7);
-    this.prop("logo", 11, 0, false);
-    this.prop("window", 13, 0, false);
-    this.prop("sofa", 11, 2);
-    this.occupy(10, 2, 3, 1);
-    this.prop("reception", 11, 4);
-    this.occupy(10, 4, 3, 1);
-    this.prop("water", 14, 6);
-    this.prop("plant", 9, 1);
-    this.prop("coffeeTable", 12, 6);
-    this.prop("devdesk", 19, 4);
-    this.occupy(18, 3, 3, 2);
-    this.prop("gamer", 19, 5, false);
-    this.prop("server", 21, 1);
-    this.prop("server", 22, 1);
-    this.prop("server", 22, 4);
-    this.prop("books", 17, 1);
-    this.prop("window", 19, 0, false);
-    this.prop("plant", 17, 6);
-    this.prop("conference", 4, 11);
-    this.occupy(3, 11, 3, 1);
-    for (const x of [2, 4, 6])
-      for (const y of [10, 12]) this.prop("chair", x, y);
-    this.prop("tv", 4, 8, false);
-    this.prop("whiteboard", 1, 9, false);
-    this.prop("plant", 7, 13);
-    this.prop("sofa", 18, 10);
-    this.occupy(17, 10, 3, 1);
-    this.prop("sofa", 21, 12);
-    this.occupy(20, 12, 3, 1);
-    this.prop("coffeeTable", 19, 11);
-    this.prop("coffee", 22, 9);
-    this.prop("arcade", 16, 12);
-    this.prop("plant", 22, 13);
-    this.prop("picture", 18, 8, false);
-    this.prop("lamp", 13, 9);
-    this.prop("lamp", 9, 13);
-    this.prop("plant", 13, 17);
-    this.prop("sofa", 11, 19);
-    this.prop("coffeeTable", 11, 18);
-    this.prop("boxes", 2, 16);
-    this.prop("plant", 7, 20);
-    this.prop("lamp", 1, 19);
-    this.prop("boxes", 21, 16);
-    this.prop("plant", 17, 20);
-    this.prop("lamp", 22, 19);
-    // Window light is a translucent raster decal, generated once.
-    for (const cell of [
-      { x: 5, y: 1 },
-      { x: 19, y: 1 },
-      { x: 13, y: 1 },
-    ]) {
-      const p = this.iso(cell);
-      this.add
-        .image(p.x, p.y, "sunlight")
-        .setOrigin(0.5, 148 / 192)
-        .setDepth(-1800);
-    }
-  }
-  private occupy(x: number, y: number, w: number, h: number) {
-    for (let yy = y; yy < y + h; yy++)
-      for (let xx = x; xx < x + w; xx++) blocked.add(key({ x: xx, y: yy }));
-  }
-  private prop(kind: Prop, x: number, y: number, solid = true) {
-    if (solid) blocked.add(key({ x, y }));
-    const p = this.iso({ x, y });
-    const image = this.add
-      .image(p.x, p.y, `prop-${kind}-0`)
-      .setOrigin(0.5, 148 / 192)
-      .setDepth(p.y + 0.1);
-    if (kind === "server" || kind === "coffee")
-      this.ambient.push({ sprite: image, kind, offset: x + y });
-    return image;
+  private clampCamera() {
+    this.cameras.main.setScroll(
+      this.cameras.main.scrollX,
+      this.cameras.main.scrollY,
+    );
   }
   private actor(id: string, cell: Cell): Actor {
-    const p = this.iso(cell);
-    const label = this.add
-      .image(p.x, p.y - 67, `name-${id}`)
-      .setOrigin(0.5, 1)
-      .setDepth(90000);
-    const a: Actor = {
+    const p = this.iso(cell),
+      label = this.add
+        .image(p.x, p.y - 60, `name-${id}`)
+        .setOrigin(0.5, 1)
+        .setDepth(90000)
+        .setVisible(false);
+    const sprite = this.add
+      .sprite(p.x, p.y, `actor-${id}`, 33)
+      .setOrigin(0.5, 56 / 64)
+      .setDepth(p.y + 0.5)
+      .setData("actor", id);
+    sprite.setInteractive({
+      pixelPerfect: true,
+      alphaTolerance: 100,
+      useHandCursor: true,
+    });
+    return {
       id,
       cell,
       home: { ...cell },
-      sprite: this.add
-        .sprite(p.x, p.y, `actor-${id}`, 0)
-        .setOrigin(0.5, 59 / 64)
-        .setDepth(p.y + 0.5),
+      sprite,
       shadow: this.add.image(p.x, p.y, "actor-shadow").setDepth(p.y - 0.1),
       label,
+      indicator:
+        id === "user"
+          ? undefined
+          : this.add
+              .image(p.x + 14, p.y - 55, "status-offline")
+              .setDepth(90000),
       status: "disconnected",
       moving: false,
-      direction: 0,
+      direction: 1,
+      seated: id !== "user",
+      showNameUntil: 0,
+      waveUntil: 0,
+      stepStart: 0,
     };
-    if (id !== "user")
-      a.indicator = this.add
-        .image(p.x + label.width / 2 + 8, p.y - 75, "status-offline")
-        .setDepth(90000);
-    return a;
   }
-  setZoom(zoom: number) {
-    if (!this.cameras?.main) return;
-    this.cameras.main.setZoom(zoom >= 3 ? 3 : 2);
-    this.cameras.main.roundPixels = true;
+  setZoom(value: number, pointer?: { x: number; y: number }) {
+    const c = this.cameras.main,
+      z = Phaser.Math.Clamp(Math.round(value), 1, 4);
+    const x = pointer?.x ?? c.width / 2,
+      y = pointer?.y ?? c.height / 2,
+      before = c.getWorldPoint(x, y);
+    c.stopFollow();
+    c.setZoom(z);
+    c.setScroll(
+      before.x - (x - c.width / 2) / z - c.width / 2,
+      before.y - (y - c.height / 2) / z - c.height / 2,
+    );
+    c.roundPixels = true;
   }
   focusRoom(index: number) {
     const room = roomViews[index];
     if (!room || !this.player) return;
     const p = this.iso(room);
-    this.following = false;
-    this.cameras.main.centerOn(p.x, p.y - 12);
+    this.cameras.main.stopFollow().centerOn(p.x, p.y - 12);
   }
   focusPlayer() {
-    if (!this.player) return;
-    const p = this.iso(this.player.cell);
-    this.cameras.main.centerOn(p.x, p.y - 24);
-    this.following = true;
+    if (this.player)
+      this.cameras.main.startFollow(this.player.sprite, true, 0.1, 0.1, 0, 22);
   }
   setAgents(agents: AgentInfo[]) {
     this.pending = agents;
@@ -311,94 +340,227 @@ export class OfficeScene extends Phaser.Scene {
     const a = this.agents.get(id);
     if (a) a.status = status;
   }
+  handleEvent(event: AgentEvent) {
+    if (event.kind === "status") this.setStatus(event.agentId, event.status);
+    if (event.kind === "user_message" && this.player)
+      this.showBubble(this.player, event.text);
+    if (event.kind === "delegation" || event.kind === "final_reply")
+      this.queue.enqueue(event, this.time.now);
+  }
   private align(a: Actor) {
     a.sprite.setDepth(a.sprite.y + 0.5);
     a.shadow.setPosition(a.sprite.x, a.sprite.y).setDepth(a.sprite.y - 0.1);
-    a.label.setPosition(Math.round(a.sprite.x), Math.round(a.sprite.y) - 67);
+    a.label.setPosition(Math.round(a.sprite.x), Math.round(a.sprite.y) - 60);
     a.indicator?.setPosition(
-      Math.round(a.sprite.x + a.label.width / 2 + 8),
-      Math.round(a.sprite.y) - 75,
+      a.sprite.x + (a.label.visible ? a.label.width / 2 + 8 : 14),
+      a.sprite.y - 55,
     );
   }
-  private step(a: Actor, next: Cell): Promise<void> {
-    if (!walkable(next)) return Promise.resolve();
+  private occupied(cell: Cell, except: string) {
+    return [this.player, ...this.agents.values()].some(
+      (a) =>
+        a.id !== except &&
+        (key(a.cell) === key(cell) ||
+          (a.movingTo && key(a.movingTo) === key(cell))),
+    );
+  }
+  walkTo(cell: Cell, seat = false) {
+    if (!this.player) return;
+    const origin = this.player.movingTo ?? this.player.cell;
+    if (this.occupied(cell, "user")) return;
+    const route = pathfind(origin, cell, seat);
+    if (!route.length && key(origin) !== key(cell)) return;
+    this.destinationSeat = seat ? key(cell) : undefined;
+    this.route = route;
+    if (!route.length && seat) this.player.seated = true;
+    this.focusPlayer();
+  }
+  private step(a: Actor, next: Cell, allowSeat = false): Promise<void> {
+    if (!this.alive || !canStep(a.cell, next, allowSeat))
+      return Promise.resolve();
     const dx = next.x - a.cell.x,
       dy = next.y - a.cell.y;
-    a.direction = dx > 0 ? 0 : dy > 0 ? 1 : dx < 0 ? 2 : 3;
+    a.direction = directions.findIndex((d) => d.x === dx && d.y === dy);
+    if (a.direction < 0) a.direction = 1;
+    a.seated = false;
     a.moving = true;
-    a.cell = next;
+    a.movingTo = next;
+    a.stepStart = this.time.now;
     const p = this.iso(next);
     return new Promise((resolve) =>
       this.tweens.add({
         targets: a.sprite,
         x: p.x,
         y: p.y,
-        duration: 210,
+        duration: 500 * Math.hypot(dx, dy),
+        ease: "Linear",
         onUpdate: () => this.align(a),
+        onStop: () => resolve(),
         onComplete: () => {
+          a.cell = { ...next };
+          a.movingTo = undefined;
           a.moving = false;
-          a.sprite.setFrame(a.direction * 4);
+          a.sprite.setPosition(p.x, p.y);
           this.align(a);
           resolve();
         },
       }),
     );
   }
-  async agentVisit(from: string, to: string, text: string): Promise<void> {
-    const a = this.agents.get(from),
-      b = this.agents.get(to);
-    if (!a || !b || this.visits.has(from)) return;
-    this.visits.add(from);
-    try {
-      const adjacent = [
-        { x: b.cell.x + 1, y: b.cell.y },
-        { x: b.cell.x - 1, y: b.cell.y },
-        { x: b.cell.x, y: b.cell.y + 1 },
-        { x: b.cell.x, y: b.cell.y - 1 },
-      ]
-        .map((goal) => ({ goal, route: pathfind(a.cell, goal) }))
-        .filter((p) => p.route.length)
-        .sort((x, y) => x.route.length - y.route.length)[0];
-      if (!adjacent) return;
-      for (const cell of adjacent.route) await this.step(a, cell);
-      const texture = `speech-${this.sequence++}`;
-      this.textures.addCanvas(texture, labelTexture(text, true).canvas());
-      const bubble = this.add
-        .image(a.sprite.x, a.sprite.y - 92, texture)
-        .setOrigin(0.5, 1)
-        .setDepth(100001);
-      await new Promise<void>((resolve) =>
-        this.time.delayedCall(3500, resolve),
-      );
-      bubble.destroy();
-      this.textures.remove(texture);
-      for (const cell of pathfind(a.cell, a.home)) await this.step(a, cell);
-    } finally {
-      this.visits.delete(from);
+  private wait(ms: number) {
+    return new Promise<void>((resolve) => {
+      const finish = () => {
+        this.events.off(Phaser.Scenes.Events.SHUTDOWN, finish);
+        resolve();
+      };
+      this.time.delayedCall(ms, finish);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, finish);
+    });
+  }
+  private async walk(a: Actor, goal: Cell, seat = false) {
+    for (const next of pathfind(a.cell, goal, seat)) {
+      if (!this.alive) return;
+      await this.step(a, next, seat && key(next) === key(goal));
     }
   }
-  private updateActor(a: Actor, time: number) {
-    if (a.moving)
-      a.sprite.setFrame(a.direction * 4 + (Math.floor(time / 100) % 4));
-    else if (a.id !== "user" && key(a.cell) === key(a.home))
-      a.sprite.setFrame(
-        16 +
-          ([
-            "coding",
-            "running_command",
-            "installing",
-            "testing",
-            "analyzing_error",
-          ].includes(a.status)
-            ? Math.floor(time / 180) % 4
-            : 0),
+  private approach(a: Actor, target: Actor, reserved: Set<string>) {
+    const choices = neighbors(target.cell)
+      .filter((p) => !reserved.has(key(p)) && !this.occupied(p, a.id))
+      .map((goal) => ({ goal, route: pathfind(a.cell, goal) }))
+      .filter((p) => p.route.length || key(p.goal) === key(a.cell))
+      .sort((x, y) => x.route.length - y.route.length);
+    const best = choices[0];
+    if (best) {
+      reserved.add(key(best.goal));
+      return best.goal;
+    }
+  }
+  async agentVisit(from: string, to: string, text: string): Promise<void> {
+    await this.perform({
+      id: `visit:${this.sequence++}`,
+      target: to,
+      deliveries: [{ agent: from, text }],
+      readyAt: 0,
+    });
+  }
+  enqueueBridge(from: string, to: string, text: string) {
+    this.queue.bridge(from, to, text, this.time.now);
+  }
+  private async perform(job: VisualJob) {
+    if (!this.alive) return;
+    const target =
+      job.target === "user" ? this.player : this.agents.get(job.target);
+    if (!target) return;
+    const reserved = new Set<string>();
+    const deliveries = job.deliveries
+      .map((d) => ({ delivery: d, actor: this.agents.get(d.agent) }))
+      .filter(
+        (d): d is { delivery: typeof d.delivery; actor: Actor } =>
+          !!d.actor && d.actor !== target && !this.visiting.has(d.actor.id),
       );
-    else a.sprite.setFrame(a.direction * 4);
+    try {
+      for (const d of deliveries) this.visiting.add(d.actor.id);
+      await Promise.all(
+        deliveries.map(async (d) => {
+          const goal = this.approach(d.actor, target, reserved);
+          if (goal) await this.walk(d.actor, goal);
+        }),
+      );
+      if (!this.alive) return;
+      // The user may have continued walking during a visit. Approach the latest tile once.
+      if (job.target === "user")
+        await Promise.all(
+          deliveries.map(async (d) => {
+            if (
+              Math.hypot(
+                d.actor.cell.x - target.cell.x,
+                d.actor.cell.y - target.cell.y,
+              ) > 2
+            ) {
+              const goal = this.approach(d.actor, target, reserved);
+              if (goal) await this.walk(d.actor, goal);
+            }
+          }),
+        );
+      for (const d of deliveries) {
+        d.actor.waveUntil = this.time.now + 900;
+        this.showBubble(
+          d.actor,
+          d.delivery.text,
+          d.delivery.more,
+          d.delivery.failed,
+        );
+      }
+      await this.wait(2600);
+      await Promise.all(
+        deliveries.map(async (d) => {
+          await this.walk(d.actor, d.actor.home, true);
+          d.actor.seated = true;
+        }),
+      );
+    } finally {
+      for (const d of deliveries) this.visiting.delete(d.actor.id);
+    }
+  }
+  private showBubble(actor: Actor, text: string, more = false, failed = false) {
+    if (!this.alive) return;
+    const shortened = text.length > 180 ? text.slice(0, 177) + "..." : text;
+    const pixels = labelTexture(shortened + (more ? "\n[VER MAIS]" : ""), true);
+    if (failed)
+      for (let i = 0; i < pixels.data.length; i += 4)
+        if (pixels.data[i] > 245 && pixels.data[i + 1] > 240) {
+          pixels.data[i] = 255;
+          pixels.data[i + 1] = 209;
+          pixels.data[i + 2] = 201;
+        }
+    const texture = `speech-${this.sequence++}`;
+    this.textures.addCanvas(texture, pixels.canvas());
+    const image = this.add
+      .image(actor.sprite.x, actor.sprite.y - 70, texture)
+      .setOrigin(0.5, 1)
+      .setDepth(100001);
+    if (more)
+      image
+        .setData("chatAgent", actor.id)
+        .setInteractive({ useHandCursor: true });
+    this.bubbles.push({ actor, image, texture, born: this.time.now });
+    while (this.bubbles.length > 16) this.removeBubble(this.bubbles[0]);
+  }
+  private removeBubble(b: Bubble) {
+    b.image.destroy();
+    this.textures.remove(b.texture);
+    this.bubbles = this.bubbles.filter((item) => item !== b);
+  }
+  private updateActor(a: Actor, time: number) {
+    const hovered = this.hovered === a,
+      name = hovered || time < a.showNameUntil;
+    a.label.setVisible(name);
+    const blink =
+      Math.floor((time + (a.id === "codex" ? 1700 : 0)) % 4500) > 4350;
+    if (a.moving)
+      a.sprite.setFrame(
+        a.direction * 4 + (Math.floor((time - a.stepStart) / 125) % 4),
+      );
+    else if (time < a.waveUntil)
+      a.sprite.setFrame(60 + (Math.floor(time / 150) % 4));
+    else if (a.seated)
+      a.sprite.setFrame(
+        [
+          "coding",
+          "running_command",
+          "installing",
+          "testing",
+          "analyzing_error",
+        ].includes(a.status)
+          ? 56 + (Math.floor(time / 180) % 4)
+          : (blink ? 64 : 48) + a.direction,
+      );
+    else a.sprite.setFrame((blink ? 40 : 32) + a.direction);
     if (a.indicator) {
       const status =
         a.status === "disconnected"
           ? "offline"
-          : a.status === "error" || a.status === "analyzing_error"
+          : ["error", "analyzing_error"].includes(a.status)
             ? "error"
             : a.status === "awaiting_approval"
               ? "approval"
@@ -407,18 +569,20 @@ export class OfficeScene extends Phaser.Scene {
                 : a.status === "idle"
                   ? "idle"
                   : "busy";
-      a.indicator.setTexture(`status-${status}`);
-      a.indicator.setAlpha(
-        status === "busy" || status === "approval"
-          ? Math.floor(time / 500) % 2
-            ? 0.65
-            : 1
-          : 1,
-      );
+      a.indicator
+        .setTexture(`status-${status}`)
+        .setAlpha(
+          ["busy", "approval"].includes(status)
+            ? Math.floor(time / 500) % 2
+              ? 0.65
+              : 1
+            : 1,
+        );
     }
+    this.align(a);
   }
   update(time: number) {
-    if (!this.player) return;
+    if (!this.player || !this.alive) return;
     const tick = Math.floor(time / 360);
     if (tick !== this.ambientTick) {
       this.ambientTick = tick;
@@ -426,71 +590,144 @@ export class OfficeScene extends Phaser.Scene {
         a.sprite.setTexture(`prop-${a.kind}-${(tick + a.offset) % 3}`),
       );
     }
+    const pointer = this.input.activePointer;
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const cell = this.cellAt(world);
+    const hover = this.iso(cell);
+    const onCanvas =
+      pointer.x >= 0 &&
+      pointer.y >= 0 &&
+      pointer.x < this.scale.width &&
+      pointer.y < this.scale.height;
+    this.highlight
+      .setVisible(onCanvas && this.controlsEnabled && walkable(cell))
+      .setPosition(hover.x, hover.y - 16);
+    this.hovered = [this.player, ...this.agents.values()].find(
+      (a) =>
+        Math.abs(world.x - a.sprite.x) < 18 &&
+        world.y < a.sprite.y &&
+        world.y > a.sprite.y - 55,
+    );
     this.updateActor(this.player, time);
     this.agents.forEach((a) => this.updateActor(a, time));
+    const stacked = new Map<string, number>();
+    for (const b of [...this.bubbles].reverse()) {
+      const age = time - b.born;
+      if (age > 9500) {
+        this.removeBubble(b);
+        continue;
+      }
+      const offset = stacked.get(b.actor.id) ?? 0;
+      b.image
+        .setPosition(
+          Math.round(b.actor.sprite.x),
+          Math.round(b.actor.sprite.y - 70 - offset - age / 1200),
+        )
+        .setAlpha(age > 7500 ? (9500 - age) / 2000 : 1);
+      stacked.set(b.actor.id, offset + b.image.height + 5);
+    }
+    if (!this.processing) {
+      const job = this.queue.take(
+        time,
+        (id) =>
+          !["idle", "error", "disconnected"].includes(
+            this.agents.get(id)?.status ?? "disconnected",
+          ),
+      );
+      if (job) {
+        this.processing = true;
+        void this.perform(job)
+          .catch(console.error)
+          .finally(() => {
+            this.processing = false;
+          });
+      }
+    }
     const active = document.activeElement;
     const typing =
       active instanceof HTMLElement &&
       (["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName) ||
-        active.isContentEditable);
-    if (typing || !this.controlsEnabled) {
-      this.route = [];
+        active.isContentEditable ||
+        !!active.closest(".floating-window"));
+    if (!this.controlsEnabled) {
       this.prompt.setVisible(false);
       return;
     }
     if (!this.player.moving) {
       let d: Cell | undefined;
-      if (this.keys.W.isDown || this.keys.UP.isDown) d = { x: 0, y: -1 };
-      else if (this.keys.S.isDown || this.keys.DOWN.isDown) d = { x: 0, y: 1 };
-      else if (this.keys.A.isDown || this.keys.LEFT.isDown) d = { x: -1, y: 0 };
-      else if (this.keys.D.isDown || this.keys.RIGHT.isDown) d = { x: 1, y: 0 };
+      if (!typing) {
+        const horizontal =
+            Number(this.keys.D.isDown || this.keys.RIGHT.isDown) -
+            Number(this.keys.A.isDown || this.keys.LEFT.isDown),
+          vertical =
+            Number(this.keys.S.isDown || this.keys.DOWN.isDown) -
+            Number(this.keys.W.isDown || this.keys.UP.isDown);
+        if (horizontal || vertical)
+          d = {
+            x: Math.sign(horizontal + vertical),
+            y: Math.sign(vertical - horizontal),
+          };
+        if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE))
+          this.player.waveUntil = time + 1200;
+      }
       if (d) {
         this.route = [];
-        this.following = true;
-        void this.step(this.player, {
+        this.destinationSeat = undefined;
+        this.focusPlayer();
+        const next = {
           x: this.player.cell.x + d.x,
           y: this.player.cell.y + d.y,
-        });
-      } else if (this.route.length)
-        void this.step(this.player, this.route.shift()!);
-    }
-    if (this.following && !this.dragging) {
-      const c = this.cameras.main;
-      const marginX = (c.width / c.zoom) * 0.25,
-        marginY = (c.height / c.zoom) * 0.25;
-      if (
-        Math.abs(this.player.sprite.x - c.midPoint.x) > marginX ||
-        Math.abs(this.player.sprite.y - c.midPoint.y) > marginY
-      )
-        c.centerOn(this.player.sprite.x, this.player.sprite.y - 24);
+        };
+        if (!this.occupied(next, "user")) void this.step(this.player, next);
+      } else if (this.route.length) {
+        const next = this.route.shift()!;
+        if (!this.occupied(next, "user"))
+          void this.step(
+            this.player,
+            next,
+            key(next) === this.destinationSeat,
+          ).then(() => {
+            if (
+              !this.route.length &&
+              this.destinationSeat === key(this.player.cell)
+            ) {
+              this.player.seated = true;
+              this.player.direction =
+                this.seats.get(this.destinationSeat)?.direction ?? 1;
+            }
+          });
+        else this.route = [];
+      }
     }
     this.target = undefined;
     const distance = (p: Cell) =>
-      Math.abs(this.player.cell.x - p.x) + Math.abs(this.player.cell.y - p.y);
+      Math.max(
+        Math.abs(this.player.cell.x - p.x),
+        Math.abs(this.player.cell.y - p.y),
+      );
     this.agents.forEach((a, id) => {
-      if (distance(a.cell) <= 2) this.target = { kind: "chat", agentId: id };
+      if (distance(a.cell) <= 1) this.target = { kind: "chat", agentId: id };
     });
-    if (!this.target && distance({ x: 4, y: 11 }) <= 3)
+    if (!this.target && distance({ x: 4, y: 11 }) <= 2)
       this.target = { kind: "meeting" };
     if (!this.target)
-      for (const [id, cell] of [
+      for (const [id, station] of [
         ["claude", { x: 4, y: 4 }],
         ["codex", { x: 19, y: 4 }],
       ] as const)
-        if (distance(cell) <= 2)
+        if (distance(station) <= 1)
           this.target = { kind: "workstation", agentId: id };
-    const text = this.target
-      ? `[E] ${this.target.kind === "chat" ? "CONVERSAR" : this.target.kind === "meeting" ? "INICIAR REUNIAO" : "ABRIR ESTACAO"}`
-      : "";
+    const text =
+      this.target && !typing
+        ? `[E] ${this.target.kind === "chat" ? "CONVERSAR" : this.target.kind === "meeting" ? "INICIAR REUNIAO" : "ABRIR ESTACAO"}`
+        : "";
     if (text !== this.promptKey) {
-      if (this.textures.exists("interaction-prompt"))
-        this.textures.remove("interaction-prompt");
       if (text) {
-        this.textures.addCanvas(
-          "interaction-prompt",
-          labelTexture(text).canvas(),
-        );
-        this.prompt.setTexture("interaction-prompt");
+        const name = `prompt-${this.sequence++}`;
+        this.textures.addCanvas(name, labelTexture(text).canvas());
+        const old = this.prompt.texture.key;
+        this.prompt.setTexture(name);
+        if (old.startsWith("prompt-")) this.textures.remove(old);
       }
       this.promptKey = text;
     }
@@ -498,9 +735,9 @@ export class OfficeScene extends Phaser.Scene {
       .setVisible(!!text)
       .setPosition(
         Math.round(this.player.sprite.x),
-        Math.round(this.player.sprite.y) + 14,
+        Math.round(this.player.sprite.y) + 12,
       );
-    if (Phaser.Input.Keyboard.JustDown(this.keys.E) && this.target)
+    if (!typing && Phaser.Input.Keyboard.JustDown(this.keys.E) && this.target)
       this.interact(this.target);
   }
 }
