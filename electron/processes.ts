@@ -6,7 +6,7 @@ import { getProject } from './projects';
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d{2,5}[^\s'"\x1b]*/;
 
 class ProcessManager extends EventEmitter {
-  private procs = new Map<string, { info: ManagedProcess; child: ChildProcess }>();
+  private procs = new Map<string, { info: ManagedProcess; child: ChildProcess; stopped?: boolean }>();
 
   list() {
     return [...this.procs.values()].map((p) => p.info);
@@ -30,7 +30,8 @@ class ProcessManager extends EventEmitter {
     child.stdout?.on('data', onData('stdout'));
     child.stderr?.on('data', onData('stderr'));
     child.on('exit', (code) => {
-      info.state = code === 0 ? 'exited' : 'failed';
+      // Encerrado pelo usuario conta como saida normal, mesmo com codigo do taskkill.
+      info.state = code === 0 || this.procs.get(info.id)?.stopped ? 'exited' : 'failed';
       info.exitCode = code ?? undefined;
       this.changed();
     });
@@ -46,6 +47,7 @@ class ProcessManager extends EventEmitter {
   stop(id: string) {
     const p = this.procs.get(id);
     if (!p?.info.pid || p.info.state !== 'running') return;
+    p.stopped = true;
     // No Windows, shell:true cria cmd.exe; mata a arvore inteira para encerrar o servidor de fato.
     if (process.platform === 'win32') execFile('taskkill', ['/pid', String(p.info.pid), '/T', '/F']);
     else p.child.kill('SIGTERM');

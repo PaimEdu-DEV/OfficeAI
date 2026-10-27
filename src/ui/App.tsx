@@ -3,7 +3,11 @@ import type { AgentEvent, AgentInfo, Project } from "../shared/types";
 import Office from "../office/Office";
 import { statusLabels } from "../office/OfficeScene";
 import AgentPanel from "./AgentPanel";
+import ExecPanel from "./panels/ExecPanel";
+import MeetingPanel from "./panels/MeetingPanel";
+import ProjectsPanel from "./panels/ProjectsPanel";
 import "./styles.css";
+import "./panels/panels.css";
 const offline: AgentInfo[] = ["claude", "codex"].map((id) => ({
   id,
   name: id === "claude" ? "Claude" : "Codex",
@@ -17,6 +21,7 @@ export default function App() {
     [projectId, setProjectId] = useState(""),
     [error, setError] = useState(""),
     [meeting, setMeeting] = useState(false),
+    [panel, setPanel] = useState<"projects" | "exec">(),
     [count, setCount] = useState(0);
   useEffect(() => {
     const api = window.aiOffice;
@@ -102,6 +107,33 @@ export default function App() {
           >
             Abrir pasta ↗
           </button>
+          <span className="header-tools">
+            {(["projects", "exec"] as const).map((p) => (
+              <button
+                key={p}
+                className="quiet"
+                disabled={!window.aiOffice}
+                onClick={() => {
+                  setPanel(panel === p ? undefined : p);
+                  setSelected(undefined);
+                  setMeeting(false);
+                }}
+              >
+                {p === "projects" ? "Projetos" : "Execução / Preview"}
+              </button>
+            ))}
+            <button
+              className="quiet"
+              disabled={!window.aiOffice}
+              onClick={() => {
+                setMeeting(!meeting);
+                setSelected(undefined);
+                setPanel(undefined);
+              }}
+            >
+              Reunião
+            </button>
+          </span>
         </div>
         <span className="connection">
           <i className={window.aiOffice ? "online" : ""} />
@@ -209,35 +241,27 @@ export default function App() {
             onClose={() => setSelected(undefined)}
           />
         )}
-        {meeting && (
-          <section className="agent-panel">
-            <div className="panel-heading">
-              <h2>Sala de reuniões</h2>
-              <button className="quiet" onClick={() => setMeeting(false)}>
-                ×
-              </button>
-            </div>
-            <div className="empty-state">
-              <span>◎</span>
-              <h3>Reúna o time</h3>
-              <p>
-                O contrato atual oferece conversas individuais. Selecione um
-                agente para começar.
-              </p>
-              {agents.map((a) => (
-                <button
-                  className="primary"
-                  key={a.id}
-                  onClick={() => {
-                    setSelected(a.id);
-                    setMeeting(false);
-                  }}
-                >
-                  {a.name} ↗
-                </button>
-              ))}
-            </div>
-          </section>
+        {meeting && window.aiOffice && (
+          <MeetingPanel
+            agents={agents}
+            projectId={projectId}
+            onClose={() => setMeeting(false)}
+          />
+        )}
+        {panel === "projects" && !agent && !meeting && (
+          <ProjectsPanel
+            agents={agents}
+            projects={projects}
+            projectId={projectId}
+            onProjects={(list, id) => {
+              setProjects(list);
+              if (id) setProjectId(id);
+            }}
+            onClose={() => setPanel(undefined)}
+          />
+        )}
+        {panel === "exec" && !agent && !meeting && (
+          <ExecPanel projectId={projectId} onClose={() => setPanel(undefined)} />
         )}
       </div>
       <footer>

@@ -80,7 +80,10 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
       detail: `${command}\n\nPasta: ${project.path}`,
     };
     const win = getWin();
-    const { response } = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+    // Testes automatizados locais podem pular o dialogo definindo AI_OFFICE_E2E_AUTOCONFIRM=1.
+    const { response } = process.env.AI_OFFICE_E2E_AUTOCONFIRM === '1'
+      ? { response: 0 }
+      : win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
     if (response !== 0) throw new Error('Execucao cancelada pelo usuario.');
     return processes.start(projectId, command);
   });

@@ -1,0 +1,30 @@
+.side-panel { display: flex; flex-direction: column; min-height: 0; }
+.side-panel.wide { width: min(900px, 60vw); }
+.panel-body { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; overflow: auto; }
+.panel-body.compact { padding-top: 8px; overflow: visible; }
+.panel-sub { margin: 8px 0 0; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacity: .95; }
+.field input, .field select, .field textarea, .panel-body input, .panel-body select, .panel-body textarea {
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+  color: inherit; font: inherit; padding: 8px 10px; flex: 1; min-width: 0;
+}
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.error-text { color: #ff8a80; font-size: 12px; margin: 0; white-space: pre-wrap; }
+.item-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.item-list li button { width: 100%; text-align: left; background: rgba(255,255,255,.04); border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.item-list li.active button { border-color: rgba(120,220,200,.6); }
+.item-list small { opacity: .65; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-view { background: #0b0d12; border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, Consolas, monospace; max-height: 260px; overflow: auto; white-space: pre-wrap; margin: 0; }
+.preview { display: flex; flex-direction: column; gap: 6px; }
+.preview iframe { width: 100%; height: 420px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: #fff; }
+.meeting-meta { padding: 0 18px 8px; display: flex; flex-direction: column; gap: 2px; }
+.meeting-meta small { opacity: .65; }
+.meeting-log { flex: 1; overflow: auto; padding: 8px 18px; display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
+.meeting-msg { background: rgba(255,255,255,.04); border-radius: 10px; padding: 8px 12px; }
+.meeting-msg p { margin: 4px 0 0; white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
+.meeting-msg.user { background: rgba(110,160,255,.12); }
+.meeting-msg.claude { border-left: 3px solid #e8896b; }
+.meeting-msg.codex { border-left: 3px solid #5fd3b8; }
+.meeting-msg.system { opacity: .7; font-size: 12px; }
+.header-tools { display: flex; gap: 6px; }
