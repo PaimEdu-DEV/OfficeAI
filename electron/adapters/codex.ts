@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+﻿import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { bus } from '../bus';
@@ -24,7 +24,7 @@ interface Session {
 
 // Sessoes proprias do AI Office via `codex exec --json` (interface oficial nao interativa),
 // retomadas com `codex exec resume <id>`. Nao usa a sessao do terminal do usuario.
-// Sem aprovacoes interativas no exec: os limites vem da sandbox workspace-write do Codex.
+// Sem aprovacoes interativas no exec: revisao automatica do Codex + sandbox workspace-write.
 export class CodexAdapter {
   private threads = readJson<Record<string, string>>('codex-threads.json', {});
   private sessions = new Map<string, Session>();
@@ -35,7 +35,7 @@ export class CodexAdapter {
       id: AGENT,
       name: 'Codex',
       status: ok ? 'idle' : 'disconnected',
-      capabilities: ['streaming-items', 'resume', 'interrupt', 'tools', 'sandbox:workspace-write'],
+      capabilities: ['streaming-items', 'resume', 'interrupt', 'tools', 'auto-review:workspace-write'],
       unavailable: ok ? undefined : 'Codex CLI nao encontrado.',
     });
   }
@@ -73,7 +73,9 @@ export class CodexAdapter {
     const turn = s.queue.shift();
     if (!turn) return;
     const thread = this.threads[s.key];
-    const args = ['exec', '--json', '--skip-git-repo-check', '-s', 'workspace-write', '-C', s.cwd];
+    // Sem humano para aprovar no exec: --approve-for-me usa a revisao automatica oficial do Codex
+    // dentro da sandbox workspace-write (com -s workspace-write puro, comandos sao rejeitados no Windows).
+    const args = ['exec', '--json', '--skip-git-repo-check', '--approve-for-me', '-C', s.cwd];
     if (thread) args.push('resume', thread);
     args.push('-'); // prompt via stdin: evita problemas de aspas no Windows
     const [cmd, full] = fs.existsSync(codexJs()) ? ['node', [codexJs(), ...args]] : ['codex', args];
