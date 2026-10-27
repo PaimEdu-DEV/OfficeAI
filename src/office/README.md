@@ -21,8 +21,11 @@ Chat history, streaming, tool output, approval replies and file viewing use only
 the shared preload contract. Monaco is bundled locally and read-only. Meeting
 interaction opens an agent selector: the contract has no collective meeting API.
 
-Validation: TypeScript check; frontend production bundle with in-memory PostCSS
-override; grid reachability with furniture and wall rejection. Full Electron
-smoke testing and live adapter verification remain integration checks. Standard
-build currently encounters a pre-existing UTF-8 BOM in package.json; ownership
-of that file is assigned to Claude in COLLAB.md.
+The project workbench creates and opens real project folders, browses a lazy
+directory tree, and displays files in Monaco. The execution workbench subscribes
+to process output even when closed, keeps bounded logs, and supports starting,
+stopping, and previewing local development processes. Logs have no history API;
+only output received during the renderer session is available.
+
+The worktree package files were reset and master merged to resolve the local BOM
+issue. Fonts now ship locally through @fontsource rather than Google Fonts.

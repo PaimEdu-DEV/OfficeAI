@@ -3,6 +3,8 @@ import type { AgentEvent, AgentInfo, Project } from "../shared/types";
 import Office from "../office/Office";
 import { statusLabels } from "../office/OfficeScene";
 import AgentPanel from "./AgentPanel";
+import ProjectPanel from "./ProjectPanel";
+import ExecutionPanel from "./ExecutionPanel";
 import "./styles.css";
 const offline: AgentInfo[] = ["claude", "codex"].map((id) => ({
   id,
@@ -17,6 +19,7 @@ export default function App() {
     [projectId, setProjectId] = useState(""),
     [error, setError] = useState(""),
     [meeting, setMeeting] = useState(false),
+    [tool, setTool] = useState<"projects" | "execution" | undefined>(),
     [count, setCount] = useState(0);
   useEffect(() => {
     const api = window.aiOffice;
@@ -71,6 +74,10 @@ export default function App() {
     }
   }
   const agent = agents.find((a) => a.id === selected);
+  const registerProject = (p: Project) => {
+    setProjects((old) => [...old.filter((item) => item.id !== p.id), p]);
+    setProjectId(p.id);
+  };
   return (
     <main className="app">
       <header>
@@ -102,6 +109,26 @@ export default function App() {
           >
             Abrir pasta ↗
           </button>
+          <button
+            className={
+              tool === "projects" ? "tool-toggle active" : "tool-toggle"
+            }
+            onClick={() =>
+              setTool(tool === "projects" ? undefined : "projects")
+            }
+          >
+            Projetos
+          </button>
+          <button
+            className={
+              tool === "execution" ? "tool-toggle active" : "tool-toggle"
+            }
+            onClick={() =>
+              setTool(tool === "execution" ? undefined : "execution")
+            }
+          >
+            Execução
+          </button>
         </div>
         <span className="connection">
           <i className={window.aiOffice ? "online" : ""} />
@@ -132,6 +159,7 @@ export default function App() {
                 onClick={() => {
                   setSelected(a.id);
                   setMeeting(false);
+                  setTool(undefined);
                 }}
               >
                 <span className={`avatar ${a.id}`}>{a.name[0]}</span>
@@ -180,6 +208,7 @@ export default function App() {
           </div>
           <Office
             agents={agents}
+            controlsEnabled={!tool}
             onInteract={(e) => {
               if (e.kind === "meeting") {
                 setMeeting(true);
@@ -239,6 +268,51 @@ export default function App() {
             </div>
           </section>
         )}
+        <section
+          className="tools-workbench"
+          hidden={!tool}
+          aria-label={
+            tool === "projects" ? "Painel de projetos" : "Painel de execução"
+          }
+        >
+          <div className="tools-heading">
+            <div className="tabs">
+              <button
+                className={tool === "projects" ? "active" : ""}
+                onClick={() => setTool("projects")}
+              >
+                ◇ Projetos
+              </button>
+              <button
+                className={tool === "execution" ? "active" : ""}
+                onClick={() => setTool("execution")}
+              >
+                ❯ Execução
+              </button>
+            </div>
+            <button
+              className="quiet"
+              aria-label="Voltar ao escritório"
+              onClick={() => setTool(undefined)}
+            >
+              Voltar ao escritório ×
+            </button>
+          </div>
+          {tool === "projects" && (
+            <ProjectPanel
+              projects={projects}
+              projectId={projectId}
+              agents={agents}
+              onProject={registerProject}
+              onSelect={setProjectId}
+            />
+          )}
+          <ExecutionPanel
+            projectId={projectId}
+            projects={projects}
+            visible={tool === "execution"}
+          />
+        </section>
       </div>
       <footer>
         <span>
