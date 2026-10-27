@@ -28,3 +28,8 @@
 .meeting-msg.codex { border-left: 3px solid #5fd3b8; }
 .meeting-msg.system { opacity: .7; font-size: 12px; }
 .header-tools { display: flex; gap: 6px; }
+
+.orch-card { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.08); }
+.orch-card small { opacity: .75; font-size: 11px; }
+.tabs-row { padding: 0 18px; }
+
