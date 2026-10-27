@@ -355,9 +355,10 @@ export function wallPixels(axis: "x" | "y", color: Palette, height: number) {
 }
 
 // 0..31 walk, 32..39 idle, 40..47 blink, 48..55 sit, 56..59 type, 60..63 wave, 64..71 seated blink.
+export const CHARACTER_FRAME_COUNT = 72;
 export function characterPixels(shirt: Palette, hair: string) {
-  const p = new Pixels(40 * 72, 64);
-  for (let frame = 0; frame < 72; frame++) {
+  const p = new Pixels(40 * CHARACTER_FRAME_COUNT, 64);
+  for (let frame = 0; frame < CHARACTER_FRAME_COUNT; frame++) {
     const walking = frame < 32,
       blink = (frame >= 40 && frame < 48) || frame >= 64,
       sitting = (frame >= 48 && frame < 60) || frame >= 64,
@@ -437,8 +438,8 @@ export function characterPixels(shirt: Palette, hair: string) {
       p.rect(x + 10, 10 + bob, 21, 14, hair);
       p.rect(x + 13, 22 + bob, 14, 4, hair);
       p.rect(x + 12, 11 + bob, 2, 8, "#756156");
-      if (direction === 4) p.rect(x + 29, 19 + bob, 3, 5, '#dfac88');
-      if (direction === 6) p.rect(x + 8, 19 + bob, 3, 5, '#f5d0ac');
+      if (direction === 4) p.rect(x + 29, 19 + bob, 3, 5, "#dfac88");
+      if (direction === 6) p.rect(x + 8, 19 + bob, 3, 5, "#f5d0ac");
     } else {
       const eyes = side ? [direction === 7 ? 26 : 13] : [15 + face, 24 + face];
       for (const eye of eyes) {
@@ -501,7 +502,7 @@ export function buildTextures(scene: Phaser.Scene) {
   ] as const) {
     add(`actor-${name}`, characterPixels(pal, hair));
     const texture = scene.textures.get(`actor-${name}`);
-    for (let frame = 0; frame < 64; frame++)
+    for (let frame = 0; frame < CHARACTER_FRAME_COUNT; frame++)
       texture.add(frame, 0, frame * 40, 0, 40, 64);
   }
   const shadow = new Pixels(48, 20);
