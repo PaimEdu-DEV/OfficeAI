@@ -6,6 +6,7 @@ import AgentPanel from "./AgentPanel";
 import ProjectPanel from "./ProjectPanel";
 import ExecutionPanel from "./ExecutionPanel";
 import MeetingPanel from "./panels/MeetingPanel";
+import OrchestrationPanel from "./panels/OrchestrationPanel";
 import FloatingWindow from "./FloatingWindow";
 import "./styles.css";
 import "./panels/panels.css";
@@ -16,7 +17,7 @@ const offline: AgentInfo[] = ["claude", "codex"].map((id) => ({
   status: "disconnected",
   capabilities: [],
 }));
-type WindowId = "agents" | "projects" | "execution" | "meeting" | "chat";
+type WindowId = "agents" | "projects" | "execution" | "meeting" | "chat" | "central";
 function DockIcon({ kind }: { kind: WindowId }) {
   const paths: Record<WindowId, string> = {
     agents: "M4 4h6v7H4z M14 4h6v7h-6z M2 14h10v7H2z M14 14h8v7h-8z",
@@ -24,6 +25,7 @@ function DockIcon({ kind }: { kind: WindowId }) {
     execution: "M5 6l6 6-6 6 M13 19h7",
     meeting: "M3 7h18v10H3z M6 2v3 M18 2v3 M6 19v3 M18 19v3",
     chat: "M3 3h18v14h-9l-6 5v-5H3z M7 8h10 M7 12h7",
+    central: "M3 20V10 M9 20V4 M15 20v-8 M21 20V7",
   };
   return (
     <svg
@@ -53,6 +55,7 @@ export default function App() {
     execution: false,
     meeting: false,
     chat: false,
+    central: false,
   });
   const [layers, setLayers] = useState<Record<WindowId, number>>({
     agents: 20,
@@ -60,6 +63,7 @@ export default function App() {
     execution: 22,
     meeting: 23,
     chat: 24,
+    central: 25,
   });
   const front = (id: WindowId) =>
     setLayers((old) => ({ ...old, [id]: Math.max(...Object.values(old)) + 1 }));
@@ -297,6 +301,19 @@ export default function App() {
           <div className="empty-state">Nenhum agente conectado.</div>
         )}
       </FloatingWindow>
+      <FloatingWindow
+        {...windowProps("central")}
+        title="Central de orquestração"
+        color="blue"
+        width={620}
+        height={600}
+      >
+        {window.aiOffice ? (
+          <OrchestrationPanel agents={agents} projects={projects} />
+        ) : (
+          <div className="empty-state">Desconectado.</div>
+        )}
+      </FloatingWindow>
       <nav className="game-dock" aria-label="Ferramentas do escritório">
         {(
           [
@@ -305,6 +322,7 @@ export default function App() {
             ["execution", "Execução"],
             ["meeting", "Reunião"],
             ["chat", "Chat"],
+            ["central", "Central"],
           ] as const
         ).map(([id, label]) => (
           <button

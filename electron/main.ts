@@ -29,6 +29,15 @@ function createWindow() {
     win.webContents.once('did-finish-load', () => {
       // AI_OFFICE_EVAL: script executado na interface (usa window.aiOffice real) antes da captura.
       if (process.env.AI_OFFICE_EVAL) void win!.webContents.executeJavaScript(process.env.AI_OFFICE_EVAL).catch((e) => console.error('[eval]', e));
+      // AI_OFFICE_SCREENSHOT_EVERY=ms: tambem salva quadros numerados (arquivo-001.png...) ate o fim.
+      const every = Number(process.env.AI_OFFICE_SCREENSHOT_EVERY ?? 0);
+      if (every > 0) {
+        let n = 0;
+        setInterval(async () => {
+          const file = shot.replace(/\.png$/i, `-${String(++n).padStart(3, '0')}.png`);
+          fs.writeFileSync(file, (await win!.webContents.capturePage()).toPNG());
+        }, every);
+      }
       setTimeout(async () => {
         fs.writeFileSync(shot, (await win!.webContents.capturePage()).toPNG());
         app.quit();
