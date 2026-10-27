@@ -1,186 +1,167 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { bus } from '../bus';
 import { readJson, writeJson } from '../store';
 import { statusForCommand } from './classify';
 
 const AGENT = 'codex';
-const SESSIONS_DIR = path.join(os.homedir(), '.codex', 'sessions');
 
-// Adaptador v1: conversa com a sessao ativa do Codex (a mesma usada pela ponte) via
-// `codex queue`, e acompanha o trabalho real lendo o rollout JSONL dessa sessao.
-// Aprovacoes do Codex continuam no TUI do Codex (o rollout nao expoe pedidos pendentes).
+interface Turn {
+  text: string;
+  toUser: boolean;
+  resolve: (reply: string) => void;
+  reject: (err: Error) => void;
+}
+
+interface Session {
+  key: string;
+  cwd: string;
+  projectId?: string;
+  queue: Turn[];
+  child?: ChildProcess;
+}
+
+// Sessoes proprias do AI Office via `codex exec --json` (interface oficial nao interativa),
+// retomadas com `codex exec resume <id>`. Nao usa a sessao do terminal do usuario.
+// Sem aprovacoes interativas no exec: os limites vem da sandbox workspace-write do Codex.
 export class CodexAdapter {
-  private config = readJson<{ thread?: string }>('codex.json', {});
-  private file?: string;
-  private offset = 0;
-  private partial = '';
-  private timer?: NodeJS.Timeout;
-  private seen = new Set<string>();
+  private threads = readJson<Record<string, string>>('codex-threads.json', {});
+  private sessions = new Map<string, Session>();
 
   init() {
+    const ok = fs.existsSync(codexJs()) || !!process.env.PATH?.split(path.delimiter).some((d) => fs.existsSync(path.join(d, 'codex.cmd')));
     bus.registerAgent({
       id: AGENT,
       name: 'Codex',
-      status: 'disconnected',
-      capabilities: ['send', 'observe', 'tools'],
+      status: ok ? 'idle' : 'disconnected',
+      capabilities: ['streaming-items', 'resume', 'interrupt', 'tools', 'sandbox:workspace-write'],
+      unavailable: ok ? undefined : 'Codex CLI nao encontrado.',
     });
-    this.attach();
-    this.timer = setInterval(() => this.poll(), 700);
   }
 
-  get thread() {
-    return this.config.thread;
+  // Chat do usuario: o fim do turno gera final_reply.
+  async send(text: string, cwd: string, projectId?: string) {
+    bus.patchAgent(AGENT, { projectId });
+    this.run(projectId ?? 'default', cwd, projectId, text, true).catch(() => undefined);
   }
 
-  setThread(thread: string) {
-    this.config.thread = thread;
-    writeJson('codex.json', this.config);
-    this.file = undefined;
-    this.attach();
+  // Delegacao de outro agente: devolve a resposta final real do Codex.
+  delegate(from: string, task: string, cwd: string, projectId?: string) {
+    return this.run(`delegation:${projectId ?? 'default'}`, cwd, projectId, `[${from}]: ${task}`, false);
   }
 
-  async send(text: string, projectId?: string) {
-    if (!this.thread) throw new Error('Nenhuma sessao do Codex configurada.');
-    bus.agentEvent({ kind: 'user_message', agentId: AGENT, ts: Date.now(), text, projectId, sessionId: this.thread });
-    await runCodex(['queue', '--thread', this.thread, '--message', text]);
+  interrupt() {
+    for (const s of this.sessions.values()) if (s.child?.pid) killTree(s.child.pid);
   }
-
-  // Delegacao vinda de outro agente: enfileira "[<from>]: tarefa" e espera o fim do turno
-  // do Codex que processou exatamente essa mensagem, devolvendo a resposta final real.
-  async delegate(from: string, task: string, timeoutMs = 15 * 60_000): Promise<string> {
-    if (!this.thread) throw new Error('Nenhuma sessao do Codex configurada.');
-    const text = `[${from}]: ${task}`;
-    const reply = new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.waiters.delete(text);
-        reject(new Error('Tempo esgotado esperando a resposta do Codex.'));
-      }, timeoutMs);
-      this.waiters.set(text, { resolve: (r) => (clearTimeout(timer), resolve(r)) });
-    });
-    await runCodex(['queue', '--thread', this.thread, '--message', text]);
-    return reply;
-  }
-
-  private waiters = new Map<string, { turnId?: string; resolve: (reply: string) => void }>();
 
   dispose() {
-    clearInterval(this.timer);
+    this.interrupt();
   }
 
-  private attach() {
-    // Sem thread configurada, usa a sessao do Codex mais recente.
-    const file = findRollout(this.thread);
-    if (!file) {
-      bus.patchAgent(AGENT, { status: 'disconnected', unavailable: 'Nenhuma sessao do Codex encontrada. Abra o Codex no terminal.' });
-      return;
-    }
-    this.file = file;
-    this.config.thread ??= threadFromFile(file);
-    // Comeca do fim: o historico anterior ja esta no proprio Codex.
-    this.offset = fs.statSync(file).size;
-    this.partial = '';
-    bus.patchAgent(AGENT, { status: 'idle', sessionId: this.thread, unavailable: undefined });
+  private run(key: string, cwd: string, projectId: string | undefined, text: string, toUser: boolean) {
+    let s = this.sessions.get(key);
+    if (!s) this.sessions.set(key, (s = { key, cwd, projectId, queue: [] }));
+    bus.agentEvent({ kind: 'user_message', agentId: AGENT, ts: Date.now(), text, projectId, sessionId: this.threads[key] });
+    return new Promise<string>((resolve, reject) => {
+      s!.queue.push({ text, toUser, resolve, reject });
+      if (!s!.child) this.next(s!);
+    });
   }
 
-  private poll() {
-    if (!this.file) return this.attach();
-    let size: number;
-    try {
-      size = fs.statSync(this.file).size;
-    } catch {
-      this.file = undefined;
-      return;
-    }
-    if (size <= this.offset) return;
-    const fd = fs.openSync(this.file, 'r');
-    const buf = Buffer.alloc(size - this.offset);
-    fs.readSync(fd, buf, 0, buf.length, this.offset);
-    fs.closeSync(fd);
-    this.offset = size;
-    const lines = (this.partial + buf.toString('utf8')).split('\n');
-    this.partial = lines.pop() ?? '';
-    for (const line of lines) {
-      try {
-        this.handle(JSON.parse(line));
-      } catch {
-        /* linha incompleta ou formato desconhecido */
-      }
-    }
-  }
+  private next(s: Session) {
+    const turn = s.queue.shift();
+    if (!turn) return;
+    const thread = this.threads[s.key];
+    const args = ['exec', '--json', '--skip-git-repo-check', '-s', 'workspace-write', '-C', s.cwd];
+    if (thread) args.push('resume', thread);
+    args.push('-'); // prompt via stdin: evita problemas de aspas no Windows
+    const [cmd, full] = fs.existsSync(codexJs()) ? ['node', [codexJs(), ...args]] : ['codex', args];
+    const child = spawn(cmd, full, { cwd: s.cwd, windowsHide: true, shell: cmd === 'codex' });
+    s.child = child;
+    child.stdin.end(turn.text);
+    bus.setStatus(AGENT, 'thinking');
 
-  private handle(e: any) {
-    const p = e.payload ?? {};
-    const base = { agentId: AGENT, ts: Date.parse(e.timestamp) || Date.now(), sessionId: this.thread };
-    if (e.type === 'event_msg') {
-      if (p.type === 'task_started') bus.setStatus(AGENT, 'thinking');
-      else if (p.type === 'task_complete') {
-        bus.setStatus(AGENT, 'idle');
-        for (const [key, w] of this.waiters)
-          if (w.turnId && w.turnId === p.turn_id) {
-            this.waiters.delete(key);
-            w.resolve(p.last_agent_message ?? '');
-            if (p.last_agent_message)
-              bus.bridgeMessage({ id: `${p.turn_id}-reply`, ts: base.ts, from: 'codex', to: 'claude', text: p.last_agent_message });
+    const base = () => ({ agentId: AGENT, ts: Date.now(), projectId: s.projectId, sessionId: this.threads[s.key] });
+    let lastMessage = '';
+    let failed = '';
+    let buffer = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        let e: any;
+        try {
+          e = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const item = e.item ?? {};
+        if (e.type === 'thread.started') {
+          this.threads[s.key] = e.thread_id;
+          writeJson('codex-threads.json', this.threads);
+          bus.patchAgent(AGENT, { sessionId: e.thread_id });
+        } else if (e.type === 'item.started') {
+          if (item.type === 'command_execution') {
+            bus.agentEvent({ ...base(), kind: 'tool_start', toolId: item.id, tool: 'shell', summary: String(item.command ?? '').slice(0, 200) });
+            bus.setStatus(AGENT, statusForCommand(String(item.command ?? '')));
+          } else if (item.type === 'file_change') {
+            bus.agentEvent({ ...base(), kind: 'tool_start', toolId: item.id, tool: 'apply_patch', summary: describeChanges(item) });
+            bus.setStatus(AGENT, 'coding');
+          } else if (item.type === 'mcp_tool_call') {
+            bus.agentEvent({ ...base(), kind: 'tool_start', toolId: item.id, tool: `${item.server}.${item.tool}`, summary: '' });
+            bus.setStatus(AGENT, 'running_command');
           }
+        } else if (e.type === 'item.completed') {
+          if (item.type === 'agent_message' && item.text) {
+            lastMessage = item.text;
+            bus.agentEvent({ ...base(), kind: 'message', messageId: item.id, text: item.text });
+          } else if (item.type === 'command_execution' || item.type === 'mcp_tool_call') {
+            const ok = item.status !== 'failed' && (item.exit_code ?? 0) === 0;
+            bus.agentEvent({ ...base(), kind: 'tool_end', toolId: item.id, ok, output: String(item.aggregated_output ?? '').slice(-4000) });
+            bus.setStatus(AGENT, ok ? 'thinking' : 'analyzing_error');
+          } else if (item.type === 'file_change') {
+            for (const c of item.changes ?? [])
+              bus.agentEvent({ ...base(), kind: 'file_changed', path: c.path, change: c.kind === 'add' ? 'create' : c.kind === 'delete' ? 'delete' : 'modify' });
+            bus.agentEvent({ ...base(), kind: 'tool_end', toolId: item.id, ok: item.status !== 'failed' });
+            bus.setStatus(AGENT, 'thinking');
+          } else if (item.type === 'reasoning') bus.setStatus(AGENT, 'thinking');
+        } else if (e.type === 'turn.completed') {
+          bus.agentEvent({ ...base(), kind: 'usage', inputTokens: e.usage?.input_tokens, outputTokens: e.usage?.output_tokens });
+        } else if (e.type === 'turn.failed' || e.type === 'error') {
+          failed = e.error?.message ?? e.message ?? 'Falha no turno do Codex';
+        }
       }
-      else if (p.type === 'token_count' && p.info?.last_token_usage)
-        bus.agentEvent({ ...base, kind: 'usage', inputTokens: p.info.last_token_usage.input_tokens, outputTokens: p.info.last_token_usage.output_tokens });
-      else if (p.type === 'item_completed' && p.item && !this.seen.has(p.item.id)) {
-        this.seen.add(p.item.id);
-        const text = (p.item.content ?? []).map((c: any) => c.text ?? '').join('');
-        if (p.item.type === 'UserMessage') {
-          const waiter = this.waiters.get(text);
-          if (waiter && !waiter.turnId) waiter.turnId = p.turn_id;
-          // Mensagens vindas do Claude pela ponte chegam como "[Claude]: ...".
-          if (text.startsWith('[Claude]:'))
-            bus.bridgeMessage({ id: p.item.id, ts: base.ts, from: 'claude', to: 'codex', text: text.slice(9).trim() });
-          else bus.agentEvent({ ...base, kind: 'user_message', text });
-        } else if (p.item.type === 'AgentMessage' && text)
-          bus.agentEvent({ ...base, kind: 'message', messageId: p.item.id, text });
+    });
+    let stderr = '';
+    child.stderr.on('data', (c: Buffer) => (stderr = (stderr + c.toString('utf8')).slice(-4000)));
+    child.on('close', (code) => {
+      s.child = undefined;
+      if (failed || (code !== 0 && !lastMessage)) {
+        const msg = failed || stderr.trim() || `codex saiu com codigo ${code}`;
+        bus.agentEvent({ ...base(), kind: 'error', message: msg });
+        bus.setStatus(AGENT, 'error', msg);
+        turn.reject(new Error(msg));
+      } else {
+        bus.setStatus(AGENT, 'idle');
+        if (turn.toUser && lastMessage) bus.agentEvent({ ...base(), kind: 'final_reply', text: lastMessage });
+        turn.resolve(lastMessage);
       }
-    } else if (e.type === 'response_item') {
-      if (p.type === 'custom_tool_call' || p.type === 'function_call') {
-        const input = String(p.input ?? p.arguments ?? '');
-        bus.agentEvent({ ...base, kind: 'tool_start', toolId: p.call_id, tool: p.name, summary: input.slice(0, 200) });
-        bus.setStatus(AGENT, /apply_patch/.test(input) ? 'coding' : statusForCommand(input));
-      } else if (p.type === 'custom_tool_call_output' || p.type === 'function_call_output') {
-        const out = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? '');
-        bus.agentEvent({ ...base, kind: 'tool_end', toolId: p.call_id, ok: !/"exit_code":\s*[1-9]|Process exited with code [1-9]/.test(out), output: out.slice(0, 4000) });
-        bus.setStatus(AGENT, 'thinking');
-      }
-    }
+      this.next(s);
+    });
   }
 }
 
-function findRollout(thread?: string): string | undefined {
-  const files: { f: string; t: number }[] = [];
-  const walk = (d: string) => {
-    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
-      const f = path.join(d, ent.name);
-      if (ent.isDirectory()) walk(f);
-      else if (ent.name.endsWith('.jsonl') && (!thread || ent.name.includes(thread))) files.push({ f, t: fs.statSync(f).mtimeMs });
-    }
-  };
-  try {
-    walk(SESSIONS_DIR);
-  } catch {
-    return undefined;
-  }
-  return files.sort((a, b) => b.t - a.t)[0]?.f;
+function describeChanges(item: any) {
+  return (item.changes ?? []).map((c: any) => `${c.kind} ${c.path}`).join(', ').slice(0, 200);
 }
 
-function threadFromFile(file: string) {
-  return /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/.exec(file)?.[1];
+function codexJs() {
+  return path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
 }
 
-// Executa o CLI do Codex sem shell, para que argumentos com aspas cheguem intactos.
-export function runCodex(args: string[]) {
-  const js = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
-  const [cmd, full] = fs.existsSync(js) ? ['node', [js, ...args]] : ['codex', args];
-  return new Promise<string>((resolve, reject) =>
-    execFile(cmd, full, { windowsHide: true, shell: cmd === 'codex' }, (err, stdout, stderr) =>
-      err ? reject(new Error(stderr || err.message)) : resolve(stdout)));
+function killTree(pid: number) {
+  if (process.platform === 'win32') execFile('taskkill', ['/pid', String(pid), '/T', '/F']);
+  else process.kill(pid, 'SIGTERM');
 }

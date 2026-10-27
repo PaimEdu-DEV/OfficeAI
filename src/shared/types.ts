@@ -31,6 +31,10 @@ export type AgentEvent = BaseEvent & (
   | { kind: 'file_changed'; path: string; change: 'create' | 'modify' | 'delete' }
   | { kind: 'approval_request'; requestId: string; summary: string; detail?: string }
   | { kind: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number }
+  // Fim de um turno pedido pelo usuario: o personagem vai ate o usuario e entrega a resposta.
+  | { kind: 'final_reply'; text: string }
+  // Etapas reais de uma delegacao entre agentes (para a coreografia na cena).
+  | { kind: 'delegation'; phase: 'sent' | 'done' | 'failed'; to: AgentId; delegationId: string; summary: string }
   | { kind: 'error'; message: string }
 );
 

@@ -13,13 +13,14 @@ import * as projects from './projects';
 
 export function registerIpc(getWin: () => BrowserWindow | null) {
   const codex = new CodexAdapter();
-  const claude = new ClaudeAdapter((agentId, task) => {
+  const claude = new ClaudeAdapter((agentId, task, cwd, projectId) => {
     if (agentId !== 'codex') throw new Error(`Delegacao para ${agentId} nao suportada.`);
-    return codex.delegate('Claude', task);
+    return codex.delegate('Claude', task, cwd, projectId);
   });
   void claude.init();
   codex.init();
-  const stopBridge = watchBridgeInbox();
+  // A ponte de desenvolvimento (terminal) so aparece no escritorio quando pedida explicitamente.
+  const stopBridge = process.env.AI_OFFICE_SHOW_DEV_BRIDGE === '1' ? watchBridgeInbox() : () => undefined;
   const stopOfficeBridge = startOfficeBridge((text) =>
     claude.ask(`[Codex, pelo AI Office]: ${text}`, defaultCwd, 'bridge:codex'));
 
@@ -36,7 +37,7 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
 
   const sendToAgent = async (agentId: AgentId, text: string, projectId?: string) => {
     if (agentId === 'claude') return claude.send(text, cwdFor(projectId), projectId);
-    if (agentId === 'codex') return codex.send(text, projectId);
+    if (agentId === 'codex') return codex.send(text, cwdFor(projectId), projectId);
     throw new Error(`Agente desconhecido: ${agentId}`);
   };
 
@@ -44,7 +45,8 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
   ipcMain.handle('agents:send', (_, agentId: AgentId, text: string, projectId?: string) => sendToAgent(agentId, text, projectId));
   ipcMain.handle('agents:interrupt', (_, agentId: AgentId) => {
     if (agentId === 'claude') return claude.interrupt();
-    throw new Error('Interromper o Codex por aqui ainda nao e suportado; use Esc no terminal do Codex.');
+    if (agentId === 'codex') return codex.interrupt();
+    throw new Error(`Agente desconhecido: ${agentId}`);
   });
   ipcMain.handle('agents:respondApproval', (_, agentId: AgentId, requestId: string, approved: boolean) => {
     if (agentId === 'claude') claude.respondApproval(requestId, approved);
@@ -100,7 +102,7 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
 
   const meetings = new Meetings((agentId, prompt, m) => {
     if (agentId === 'claude') return claude.ask(prompt, cwdFor(m.projectId), `meeting:${m.id}`, m.projectId);
-    if (agentId === 'codex') return codex.delegate('Reuniao', prompt);
+    if (agentId === 'codex') return codex.delegate('Reuniao', prompt, cwdFor(m.projectId), m.projectId);
     throw new Error(`Agente desconhecido: ${agentId}`);
   });
   meetings.on('changed', send('meeting-changed'));
