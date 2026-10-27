@@ -1,5 +1,8 @@
 import { createRoot } from "react-dom/client";
 import App from "./ui/App";
+import "@fontsource/pixelify-sans/400.css";
+import "@fontsource/pixelify-sans/500.css";
+import "@fontsource/pixelify-sans/600.css";
 import "@fontsource/dm-sans/400.css";
 import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";

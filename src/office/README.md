@@ -1,51 +1,52 @@
 # Office integration
 
-`Office` mounts and destroys Phaser with React. Its `onInteract` callback emits
-`{ kind: 'chat' | 'workstation' | 'meeting', agentId?: string }`.
+The canvas fills the Electron content area. React provides a bottom dock and
+independent draggable, resizable, light floating windows. Agent, project and
+execution content reuse their real preload APIs. MeetingPanel is wrapped without
+changing its logic. Pixelify Sans is a freely licensed, locally bundled UI font.
+All game art remains original raster artwork; no commercial game assets are used.
 
-`OfficeScene.agentVisit(from, to, text): Promise<void>` moves the source agent
-along the collision grid to the recipient, displays the supplied text for 3.5
-seconds, then returns home. `Office` already calls it on real `bridge-message`
-events. The method does not synthesize or modify agent status. Concurrent visits
-for the same source are ignored while its current visit is active.
+## Navigation
 
-Agent status is supplied through `setAgents` and `setStatus` from preload events.
-Without preload, both resident characters remain disconnected. Walking and
-bridge visits are presentation animations, independent of adapter status.
+The 24 x 22 collision grid uses 8-way A* with octile distance. Diagonal steps
+require both adjacent cardinal cells to be clear, preventing corner cutting.
+A cardinal tile takes 500 ms, a diagonal sqrt(2) times that duration. A completed
+step snaps to the tile center. A route selected mid-step starts at the current
+step's destination. Furniture remains blocked; only a selected chair is allowed
+as a final endpoint. Clicking an unoccupied chair seats the user. WASD/arrows are
+screen-relative, including combinations; Space waves; E opens nearby interaction.
 
-The room grid uses four-way A*. Furniture and partitions share the same collision
-set. WASD/arrows move on grid axes; clicking the floor selects an A* destination.
-E emits the nearby interaction. Typing in forms suspends keyboard movement.
+The camera follows with interpolation and has map bounds. Mouse wheel uses
+integer zoom 1x through 4x around the cursor. Right/middle drag pans; left drag
+also pans on empty floor. A compact Map menu selects rooms or resumes following.
+The floor under the pointer is highlighted. Names appear on hover/selection.
 
-Chat history, streaming, tool output, approval replies and file viewing use only
-the shared preload contract. Monaco is bundled locally and read-only. Meeting
-interaction opens an agent selector: the contract has no collective meeting API.
+## Artwork
 
-The project workbench creates and opens real project folders, browses a lazy
-directory tree, and displays files in Monaco. The execution workbench subscribes
-to process output even when closed, keeps bounded logs, and supports starting,
-stopping, and previewing local development processes. Logs have no history API;
-only output received during the renderer session is available.
+pixels.ts and art.ts create original ImageData textures, 64 x 32 floor tiles,
+three shaded prop faces, one-pixel outlines, translucent shadows, windows and
+baked lighting. No Phaser Graphics or Canvas vector paths are used. Server LEDs
+and coffee steam update at a low rate. Character atlases have 72 frames: eight
+walking directions x four frames, directional idle/blink/seated poses, typing
+and waving, plus seated blinking. The renderer targets 60 fps with nearest-neighbor pixels.
 
-The worktree package files were reset and master merged to resolve the local BOM
-issue. Fonts now ship locally through @fontsource rather than Google Fonts.
+## Real event choreography
 
-## Pixel office
+OfficeScene.handleEvent consumes live agent-event events; status only comes from
+preload. ChoreographyQueue is presentation-only and never calls or awaits an
+adapter. Delegation sent visits the recipient. Done returns the delegated agent
+to the owner; if the owner is still composing, the queue waits for its real final
+reply and groups both agents into a visit to the user. Other ready jobs continue.
+Final replies visit the user's current location and return home. Failure balloons
+are red. Pending repeated events are grouped/deduplicated, while React receives
+all real messages immediately regardless of animation progress.
 
-All scenery, furniture, glyphs, status icons, speech balloons and characters are
-original `ImageData` textures from `pixels.ts` and `art.ts`. No Phaser Graphics,
-Canvas paths, vector shapes, downloaded art or remote images are used. Base floor
-tiles are 64×32, rendered with nearest-neighbor filtering and integer 2×/3× zoom.
-The camera starts in the director's room. Room buttons, drag-to-pan, scroll zoom
-and the “Você” button explore the larger building without fractional rescaling.
+OfficeScene.agentVisit(from, to, text) remains available for direct integration;
+live bridge-message events enter the same presentation queue. Visits do not
+synthesize status. Bubbles stack above actors, rise, fade and expire; a final
+reply bubble opens the real chat via [VER MAIS]. User-message bubbles also derive
+from actual preload events. Temporary textures are released after expiry.
 
-Props share a 192×192 canvas and ground anchor (96, 148), allowing a common
-isometric y depth order. Three separately shaded faces, a one-pixel outline,
-layered translucent shadows, baseboards, window light and material details are
-baked once. Only server LEDs, coffee steam and live character/status frames
-change during the scene update. The renderer is capped at 30 fps.
-
-Each character atlas contains four directions × four walking frames plus four
-seated typing frames. Nameplates use an original raster alphabet, with a separate
-status icon beside each agent's name; the user has no agent status. Real bridge
-messages retain the same visit API and appear in a white, outlined speech balloon.
+Validation includes TypeScript, Vite/Electron build, corner-blocking and seat
+path checks, queue grouping in both arrival orders, and Electron screenshots and
+input checks. The native execution confirmation remains a backend interaction.

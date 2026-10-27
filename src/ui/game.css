@@ -1,0 +1,875 @@
+﻿.game-app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #79adbd;
+  color: #37414b;
+  font-family: "Pixelify Sans", "DM Sans", sans-serif;
+  font-size: 14px;
+  color-scheme: light;
+}
+.game-stage {
+  position: absolute;
+  inset: 0;
+}
+.game-stage .office-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.office-canvas canvas {
+  outline: none;
+  image-rendering: pixelated;
+}
+.game-app button,
+.game-app input,
+.game-app textarea,
+.game-app select {
+  font-family: inherit;
+}
+.game-app button {
+  color: #354451;
+  border: 1px solid #7e929c;
+  border-radius: 3px;
+  background: #e6eceb;
+  box-shadow:
+    inset 0 1px #fff,
+    inset 0 -2px #c3cdcf;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.game-app button:hover {
+  background: #f5f7ec;
+  color: #22363e;
+}
+.game-app button:active {
+  box-shadow: inset 0 2px #9eb5b8;
+  transform: translateY(1px);
+}
+.game-app button:disabled {
+  opacity: 0.45;
+  transform: none;
+}
+.game-app button:focus-visible,
+.game-app input:focus-visible,
+.game-app select:focus-visible,
+.game-app textarea:focus-visible {
+  outline: 2px solid #f1ba56;
+  outline-offset: 2px;
+}
+.game-app .primary {
+  background: #aad891;
+  border-color: #627f50;
+  color: #283d25;
+  box-shadow:
+    inset 0 2px #e0f4cf,
+    inset 0 -2px #8ab577;
+}
+.game-app .primary:hover {
+  background: #c7e7ab;
+}
+.game-app .quiet {
+  background: #edf0ec;
+  color: #4d626b;
+}
+.game-app input,
+.game-app textarea,
+.game-app select {
+  background: #fffef8;
+  color: #354451;
+  border: 1px solid #a5b3b7;
+  border-radius: 3px;
+  padding: 9px;
+  font-size: 13px;
+  box-shadow: inset 1px 2px #e6e9e1;
+}
+.game-app input[type="checkbox"] {
+  accent-color: #65a8aa;
+  box-shadow: none;
+}
+.world-badge {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #fff6e3f0;
+  border: 2px solid #526b72;
+  border-radius: 4px;
+  box-shadow: 3px 3px #304a5b65;
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 3;
+  color: #3c555e;
+  font-size: 17px;
+  letter-spacing: 2px;
+}
+.world-logo {
+  font-size: 28px;
+  color: #519995;
+}
+.world-badge small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  letter-spacing: 0;
+  font:
+    10px "DM Sans",
+    sans-serif;
+  color: #6a7c7d;
+}
+.world-badge i {
+  width: 6px;
+  height: 6px;
+  background: #a5a5a1;
+  border-radius: 1px;
+}
+.world-badge i.connected {
+  background: #78b474;
+}
+.camera-menu {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 4;
+  color: #405964;
+  font-size: 13px;
+}
+.camera-menu summary {
+  list-style: none;
+  cursor: pointer;
+  background: #fff7e8ed;
+  border: 2px solid #59717a;
+  border-radius: 4px;
+  padding: 8px 13px;
+  box-shadow: 3px 3px #304a5b65;
+}
+.camera-menu > div {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #f7f5e9;
+  border: 2px solid #526b72;
+  padding: 9px;
+  width: 170px;
+  box-shadow: 3px 3px #304a5b65;
+}
+.camera-menu small {
+  font:
+    10px/1.7 "DM Sans",
+    sans-serif;
+  color: #6d8083;
+  margin: 7px 2px;
+}
+.game-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  background: #e8f2e3d9;
+  border: 1px solid #9fb7aa;
+  color: #446369;
+  padding: 7px 10px;
+  font:
+    10px "DM Sans",
+    sans-serif;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.game-dock {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f4f1de;
+  border: 2px solid #52606b;
+  border-radius: 5px;
+  box-shadow:
+    4px 4px #233c5260,
+    inset 0 2px #fff;
+  padding: 6px 9px;
+  z-index: 10;
+  max-width: calc(100vw - 24px);
+}
+.game-app .dock-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 75px;
+  height: 57px;
+  border: 1px solid transparent;
+  box-shadow: none;
+  background: transparent;
+  font-size: 12px;
+  color: #50666c;
+  padding: 4px 9px;
+}
+.dock-item svg {
+  color: #4b8a9d;
+  filter: drop-shadow(1px 1px #fff);
+}
+.dock-item.dock-agents svg {
+  color: #bc816c;
+}
+.dock-item.dock-projects svg {
+  color: #79a575;
+}
+.dock-item.dock-meeting svg {
+  color: #be9a53;
+}
+.dock-item.dock-chat svg {
+  color: #7d8fc1;
+}
+.game-app .dock-item.active {
+  border-color: #a1b6ac;
+  background: #d9e9d5;
+  box-shadow: inset 0 2px #c5d9c3;
+}
+.dock-item b {
+  position: absolute;
+  top: 1px;
+  right: 9px;
+  min-width: 13px;
+  height: 13px;
+  line-height: 13px;
+  background: #d3e3b3;
+  border: 1px solid #6e9270;
+  border-radius: 2px;
+  color: #42654c;
+  font:
+    10px "DM Sans",
+    sans-serif;
+}
+.dock-divider {
+  width: 1px;
+  height: 40px;
+  background: #c0c9bb;
+  margin: 0 6px;
+}
+.dock-project {
+  max-width: 135px;
+  min-width: 95px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #65766b;
+}
+.dock-project small {
+  display: block;
+  font:
+    8px "DM Sans",
+    sans-serif;
+  letter-spacing: 1px;
+  color: #92a08d;
+  margin-bottom: 5px;
+}
+.floating-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+  min-height: 240px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 105px);
+  border: 2px solid #485760;
+  border-radius: 5px;
+  background: #f5f3e9;
+  box-shadow:
+    5px 5px #2e445878,
+    1px 1px #fff inset;
+  resize: both;
+  overflow: hidden;
+}
+.floating-window[hidden] {
+  display: none;
+}
+.window-titlebar {
+  height: 37px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 7px 5px 12px;
+  background: #77aabb;
+  border-bottom: 2px solid #4b6873;
+  box-shadow: inset 0 2px #abd5df;
+  touch-action: none;
+  cursor: move;
+  color: #fffbe9;
+  user-select: none;
+}
+.window-titlebar strong {
+  font-size: 16px;
+  font-weight: 600;
+  text-shadow: 1px 1px #476b75;
+  flex: 1;
+}
+.window-grip {
+  font-size: 16px;
+  opacity: 0.65;
+}
+.game-app .window-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font:
+    20px/1 "DM Sans",
+    sans-serif;
+  color: #624f42;
+  background: #f4dfae;
+  border: 1px solid #77684b;
+  box-shadow:
+    inset 0 1px #fff4ce,
+    inset 0 -2px #c9af82;
+}
+.window-coral .window-titlebar {
+  background: #c9927f;
+  border-color: #8c665c;
+  box-shadow: inset 0 2px #eab6a1;
+}
+.window-coral .window-titlebar strong {
+  text-shadow: 1px 1px #906a5a;
+}
+.window-green .window-titlebar {
+  background: #8fb99c;
+  border-color: #5e816a;
+  box-shadow: inset 0 2px #c4e2bf;
+}
+.window-green .window-titlebar strong {
+  text-shadow: 1px 1px #6d8d70;
+}
+.window-gold .window-titlebar {
+  background: #c4ad72;
+  border-color: #8f7f53;
+  box-shadow: inset 0 2px #ebd69d;
+}
+.window-gold .window-titlebar strong {
+  text-shadow: 1px 1px #8a7851;
+}
+.floating-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.game-app .agent-panel {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  background: #f5f3e9;
+  color: #455662;
+  box-shadow: none;
+}
+.game-app .panel-heading {
+  padding: 12px 16px;
+  border-color: #d5d9ce;
+  gap: 10px;
+}
+.game-app .panel-heading h2 {
+  font:
+    500 16px "Pixelify Sans",
+    "DM Sans",
+    sans-serif;
+  color: #52666b;
+}
+.game-app .panel-heading .close,
+.game-app .side-panel > .panel-heading {
+  display: none;
+}
+.game-app .avatar {
+  width: 34px;
+  height: 37px;
+  background: #dae9de;
+  color: #557b70;
+  border: 1px solid #97bba7;
+  border-radius: 3px;
+  font-family: inherit;
+}
+.game-app .avatar.claude {
+  background: #f2ded0;
+  border-color: #c5a48d;
+  color: #a86f56;
+}
+.game-app .agent-card {
+  background: #fffdf3;
+  border-color: #b8c8bc;
+  border-radius: 3px;
+}
+.game-app .agent-card:hover {
+  background: #e6eddc;
+}
+.game-app .agent-copy small,
+.game-app .agent-copy .status {
+  font-size: 11px;
+}
+.game-app .agent-copy strong {
+  font-size: 16px;
+}
+.game-app .status {
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  color: #568b6c;
+}
+.game-app .status.disconnected {
+  color: #9b9c91;
+}
+.game-app .status.error,
+.game-app .status.analyzing_error {
+  color: #bb6b61;
+}
+.game-app .status.awaiting_approval {
+  color: #ad8a3e;
+}
+.agent-directory {
+  padding: 18px;
+}
+.agent-directory > p {
+  font:
+    12px/1.7 "DM Sans",
+    sans-serif;
+  color: #82918b;
+  margin: 0 0 20px;
+}
+.agent-directory .offline-note {
+  font-size: 10px;
+  margin-top: 20px;
+}
+.game-app .tabs {
+  border-color: #c7d4cb;
+}
+.game-app .tabs button {
+  color: #8a9994;
+  font-size: 13px;
+  background: none;
+  box-shadow: none;
+}
+.game-app .tabs .active {
+  color: #527d7d;
+  border-bottom: 2px solid #82ad9d;
+}
+.game-app .conversation {
+  background: #f9f8f0;
+  padding: 14px;
+}
+.game-app .empty-state {
+  color: #8d9b94;
+  font:
+    12px/1.7 "DM Sans",
+    sans-serif;
+}
+.game-app .empty-state h3 {
+  color: #657b77;
+  font-family: inherit;
+}
+.game-app .empty-state > span {
+  color: #a2bdb0;
+}
+.game-app .message {
+  background: #fffdf6;
+  border: 1px solid #d5dece;
+  border-radius: 4px;
+  color: #53645e;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+}
+.game-app .message.user {
+  background: #e6efda;
+  border-color: #c7d9bb;
+}
+.game-app .message-label {
+  color: #8ca39b;
+  font-size: 9px;
+}
+.game-app .message.tool {
+  background: #edf1e6;
+  color: #788777;
+}
+.game-app .message.approval {
+  border-color: #cbb682;
+  background: #fff5d9;
+}
+.game-app .message.error {
+  background: #f8e6df;
+  color: #aa665c;
+}
+.game-app .composer {
+  background: #ecefe3;
+  border-color: #ccd7c7;
+}
+.game-app .composer textarea {
+  background: #fffef7;
+  color: #4c635c;
+  border-color: #abbeb0;
+  min-height: 74px;
+  resize: vertical;
+  font-family: "DM Sans", sans-serif;
+}
+.game-app .composer > div > span {
+  color: #96a28d;
+}
+.game-app .composer button {
+  font-family: inherit;
+}
+.chat-switcher {
+  display: flex;
+  gap: 5px;
+  padding: 9px 12px;
+  background: #ebeee1;
+  border-bottom: 1px solid #d1d9ca;
+}
+.game-app .chat-switcher button {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.game-app .chat-switcher .active {
+  background: #d1e3cb;
+}
+.game-app .project-workbench {
+  background: #f9f8ef;
+  color: #576c62;
+}
+.game-app .project-list,
+.game-app .project-tree {
+  background: #f0f0e3;
+  border-color: #ccd7c7;
+}
+.game-app .project-item {
+  border-radius: 3px;
+  color: #5f7567;
+}
+.game-app .project-item.active {
+  background: #dde9d3;
+  border-color: #a8bea0;
+}
+.game-app .project-item small {
+  color: #98a58f;
+}
+.game-app .section-label,
+.game-app .eyebrow {
+  color: #8fa187;
+  font-size: 10px;
+}
+.game-app .tree-note {
+  color: #95a08e;
+  font-family: "DM Sans", sans-serif;
+}
+.game-app .project-summary {
+  border-color: #d5ddce;
+  background: #f6f6ec;
+}
+.game-app .project-summary h2,
+.game-app .project-form h2,
+.game-app .execution-top h2 {
+  font-family: inherit;
+  color: #687e6f;
+  font-size: 21px;
+}
+.game-app .project-summary p,
+.game-app .project-form > p,
+.game-app .execution-top p {
+  color: #9aa78f;
+  font:
+    11px/1.7 "DM Sans",
+    sans-serif;
+}
+.game-app .project-form label {
+  color: #71826b;
+}
+.game-app .project-form input,
+.game-app .project-form textarea,
+.game-app .project-form select {
+  background: #fffef7;
+  color: #53664d;
+  border-color: #b6c4ab;
+  font-family: "DM Sans", sans-serif;
+}
+.game-app .project-files .editor-empty,
+.game-app .editor-empty {
+  color: #9eac96;
+  font:
+    12px "DM Sans",
+    sans-serif;
+}
+.game-app .file-entry {
+  color: #71846d;
+  background: transparent;
+  box-shadow: none;
+}
+.game-app .file-entry:hover,
+.game-app .file-entry.active {
+  background: #dce8d1;
+}
+.game-app .file-browser {
+  background: #f0f1e7;
+  border-color: #d4ddcc;
+}
+.game-app .file-path {
+  color: #8b9d82;
+}
+.game-app .editor-path {
+  background: #e7eddf;
+  color: #839578;
+}
+.game-app .editor-path span {
+  color: #9dac8f;
+}
+.game-app .execution-workbench {
+  background: #f9f8ef;
+  padding: 18px;
+}
+.game-app .execution-content {
+  border-color: #c6d4ca;
+  border-radius: 4px;
+}
+.game-app .process-list {
+  border-color: #c6d4ca;
+  background: #eff1e7;
+}
+.game-app .process-item {
+  color: #6b7e71;
+  border-radius: 3px;
+}
+.game-app .process-item.active {
+  background: #dbe7d2;
+  border-color: #b1c4a8;
+}
+.game-app .process-state {
+  color: #94a38a;
+}
+.game-app .process-state.running {
+  color: #679b71;
+}
+.game-app .process-state.failed {
+  color: #b17767;
+}
+.game-app .process-item small {
+  color: #a6b09a;
+}
+.game-app .command-form {
+  background: #fffef7;
+  border-color: #b1c4b5;
+  border-radius: 4px;
+}
+.game-app .command-form input {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  background: none;
+  box-shadow: none;
+  color: #60785f;
+}
+.game-app .command-form > span {
+  color: #87ac8a;
+}
+.game-app .process-toolbar {
+  background: #eaf0e1;
+  border-color: #cbdac6;
+}
+.game-app .process-toolbar > span {
+  color: #8e9e84;
+}
+.game-app .terminal {
+  background: #f0f3e8;
+  color: #53725c;
+  font:
+    12px/1.7 Consolas,
+    monospace;
+}
+.game-app .terminal .stderr {
+  color: #b67c65;
+}
+.game-app .terminal-note {
+  color: #a1b096;
+}
+.game-app .preview-address {
+  background: #edf1e6;
+  color: #90a084;
+}
+.game-app .scene-badge {
+  border-color: #c2d1b8;
+  color: #92a285;
+}
+.project-select {
+  padding: 8px 14px;
+  background: #e9eedf;
+  border-bottom: 1px solid #c4d2be;
+}
+.project-select label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #8d9d80;
+}
+.project-select select {
+  padding: 5px 8px;
+  max-width: 350px;
+}
+.game-app .meeting-meta {
+  padding: 16px;
+  background: #fbf7e9;
+  border-bottom: 1px solid #ded8bf;
+  color: #8b805f;
+}
+.game-app .meeting-meta small {
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+}
+.game-app .meeting-log {
+  background: #f9f8ef;
+}
+.game-app .meeting-msg {
+  background: #fffdf5;
+  border: 1px solid #e1ddc9;
+  border-radius: 3px;
+  color: #8b856d;
+}
+.game-app .meeting-msg.user {
+  background: #f4edcf;
+}
+.game-app .meeting-msg p {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+}
+.game-app .panel-body {
+  background: #f5f3e9;
+  color: #8d866d;
+}
+.game-app .panel-body input,
+.game-app .panel-body select,
+.game-app .panel-body textarea {
+  background: #fffdf4;
+  border-color: #c5c3a7;
+  color: #7d7f68;
+  box-shadow: inset 1px 2px #eeeddf;
+}
+.game-app .error-text,
+.game-app .panel-error,
+.game-error {
+  color: #a86b60;
+  background: #f5ded3;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+}
+.game-error {
+  position: absolute;
+  top: 95px;
+  left: 18px;
+  max-width: 450px;
+  z-index: 500;
+  border: 2px solid #ba8e7e;
+  box-shadow: 3px 3px #453e3733;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.game-error button {
+  font-size: 18px;
+}
+.game-app .floating-window .agent-panel {
+  top: auto;
+  right: auto;
+  bottom: auto;
+}
+.game-app .muted {
+  color: #a1ad93;
+}
+.game-app .side-panel .field {
+  opacity: 1;
+}
+@media (max-width: 1000px) {
+  .game-hint {
+    display: none;
+  }
+  .game-app .dock-item {
+    width: 64px;
+  }
+  .floating-window {
+    min-width: 280px;
+  }
+  .world-badge {
+    padding: 7px 10px;
+    font-size: 14px;
+  }
+  .dock-project {
+    max-width: 110px;
+  }
+}
+@media (max-width: 650px) {
+  .dock-project,
+  .dock-divider {
+    display: none;
+  }
+  .game-app .dock-item {
+    width: 59px;
+  }
+  .game-dock {
+    padding: 4px;
+    bottom: 8px;
+  }
+  .floating-window {
+    resize: none;
+    max-width: calc(100vw - 8px);
+    max-height: calc(100vh - 100px);
+  }
+  .game-app .project-list {
+    max-height: 130px;
+  }
+  .game-app .project-tree {
+    width: 145px;
+  }
+  .game-app .project-form {
+    padding: 18px;
+  }
+  .game-app .process-list {
+    width: 125px;
+  }
+  .world-badge {
+    left: 10px;
+    top: 10px;
+  }
+  .camera-menu {
+    top: 10px;
+    right: 10px;
+  }
+}
+/* Keep native checkboxes compact inside the unmodified meeting form. */
+.game-app .check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0 6px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+.game-app .check {
+  color: #64715e;
+}
+.game-app .panel-body,
+.game-app .project-form label {
+  color: #65725e;
+}
+.game-app .file-entry {
+  border: 0;
+  box-shadow: none;
+}
+.game-app .section-label {
+  color: #77896a;
+}
