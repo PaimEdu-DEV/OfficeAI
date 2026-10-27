@@ -26,11 +26,14 @@ function createWindow() {
   const shot = process.env.AI_OFFICE_SCREENSHOT;
   if (shot) {
     win.webContents.on('console-message', (_e, level, message) => level >= 2 && console.error('[renderer]', message));
-    win.webContents.once('did-finish-load', () =>
+    win.webContents.once('did-finish-load', () => {
+      // AI_OFFICE_EVAL: script executado na interface (usa window.aiOffice real) antes da captura.
+      if (process.env.AI_OFFICE_EVAL) void win!.webContents.executeJavaScript(process.env.AI_OFFICE_EVAL).catch((e) => console.error('[eval]', e));
       setTimeout(async () => {
         fs.writeFileSync(shot, (await win!.webContents.capturePage()).toPNG());
         app.quit();
-      }, Number(process.env.AI_OFFICE_SCREENSHOT_DELAY ?? 5000)));
+      }, Number(process.env.AI_OFFICE_SCREENSHOT_DELAY ?? 5000));
+    });
   }
 }
 
