@@ -84,7 +84,7 @@ export default function Office({
             ◎ Seguir meu avatar
           </button>
           <small>
-            Roda: zoom 1× a 4×
+            Roda: zoom livre 0,5× a 6×
             <br />
             Botão direito: arrastar
           </small>

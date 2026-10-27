@@ -1,6 +1,7 @@
 ﻿import Phaser from "phaser";
 import type { AgentEvent, AgentInfo, AgentStatus } from "../shared/types";
 import { buildTextures } from "./art";
+import { GridMotion } from "./motion";
 import {
   blocked,
   canStep,
@@ -61,6 +62,9 @@ type Actor = {
   showNameUntil: number;
   waveUntil: number;
   stepStart: number;
+  motion: GridMotion;
+  seatGoal?: string;
+  arrival?: () => void;
 };
 type Bubble = {
   actor: Actor;
@@ -83,7 +87,15 @@ export class OfficeScene extends Phaser.Scene {
   private player!: Actor;
   private agents = new Map<string, Actor>();
   private seats = new Map<string, Seat>();
-  private route: Cell[] = [];
+  private get route() {
+    return this.player?.motion.path ?? [];
+  }
+  private manualActive = false;
+  private zoomMotion?: {
+    target: number;
+    screen: { x: number; y: number };
+    world: { x: number; y: number };
+  };
   private destinationSeat?: string;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private prompt!: Phaser.GameObjects.Image;
@@ -244,7 +256,11 @@ export class OfficeScene extends Phaser.Scene {
     this.input.on(
       "wheel",
       (p: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) =>
-        this.setZoom(camera.zoom + (dy < 0 ? 1 : -1), p),
+        this.setZoom(
+          (this.zoomMotion?.target ?? camera.zoom) * Math.exp(-dy * 0.0015),
+          p,
+          true,
+        ),
     );
     this.scale.on("resize", () => this.clampCamera());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -299,29 +315,57 @@ export class OfficeScene extends Phaser.Scene {
       showNameUntil: 0,
       waveUntil: 0,
       stepStart: 0,
+      motion: new GridMotion(cell),
     };
   }
-  setZoom(value: number, pointer?: { x: number; y: number }) {
+  setZoom(value: number, pointer?: { x: number; y: number }, smooth = false) {
     const c = this.cameras.main,
-      z = Phaser.Math.Clamp(Math.round(value), 1, 4);
-    const x = pointer?.x ?? c.width / 2,
-      y = pointer?.y ?? c.height / 2,
-      before = c.getWorldPoint(x, y);
+      target = Phaser.Math.Clamp(value, 0.5, 6),
+      screen = { x: pointer?.x ?? c.width / 2, y: pointer?.y ?? c.height / 2 };
+    const world = {
+      x: c.scrollX + c.width / 2 + (screen.x - c.width / 2) / c.zoom,
+      y: c.scrollY + c.height / 2 + (screen.y - c.height / 2) / c.zoom,
+    };
     c.stopFollow();
-    c.setZoom(z);
-    c.setScroll(
-      before.x - (x - c.width / 2) / z - c.width / 2,
-      before.y - (y - c.height / 2) / z - c.height / 2,
-    );
+    this.zoomMotion = undefined;
+    if (smooth) this.zoomMotion = { target, screen, world };
+    else this.applyZoom(target, screen, world);
+  }
+  private applyZoom(
+    zoom: number,
+    screen: { x: number; y: number },
+    world: { x: number; y: number },
+  ) {
+    const c = this.cameras.main;
+    c.setZoom(zoom);
+    const x = world.x - (screen.x - c.width / 2) / zoom - c.width / 2,
+      y = world.y - (screen.y - c.height / 2) / zoom - c.height / 2;
+    // Align the camera translation to physical pixels, preserving a fractional scale.
+    c.setScroll(Math.round(x * zoom) / zoom, Math.round(y * zoom) / zoom);
     c.roundPixels = true;
   }
+  private advanceZoom(delta: number) {
+    const motion = this.zoomMotion;
+    if (!motion) return;
+    const current = this.cameras.main.zoom,
+      difference = motion.target - current;
+    const zoom =
+      Math.abs(difference) < 0.0005
+        ? motion.target
+        : current +
+          difference * (1 - Math.exp((-Math.min(delta, 100) / 1000) * 14));
+    this.applyZoom(zoom, motion.screen, motion.world);
+    if (zoom === motion.target) this.zoomMotion = undefined;
+  }
   focusRoom(index: number) {
+    this.zoomMotion = undefined;
     const room = roomViews[index];
     if (!room || !this.player) return;
     const p = this.iso(room);
     this.cameras.main.stopFollow().centerOn(p.x, p.y - 12);
   }
   focusPlayer() {
+    this.zoomMotion = undefined;
     if (this.player)
       this.cameras.main.startFollow(this.player.sprite, true, 0.1, 0.1, 0, 22);
   }
@@ -366,46 +410,92 @@ export class OfficeScene extends Phaser.Scene {
   }
   walkTo(cell: Cell, seat = false) {
     if (!this.player) return;
-    const origin = this.player.movingTo ?? this.player.cell;
+    const a = this.player,
+      origin = a.motion.target ?? a.motion.cell;
     if (this.occupied(cell, "user")) return;
     const route = pathfind(origin, cell, seat);
     if (!route.length && key(origin) !== key(cell)) return;
     this.destinationSeat = seat ? key(cell) : undefined;
-    this.route = route;
-    if (!route.length && seat) this.player.seated = true;
+    a.seatGoal = this.destinationSeat;
+    a.motion.replace(route);
+    if (!a.motion.moving && seat) {
+      a.seated = true;
+      a.direction = this.seats.get(key(cell))?.direction ?? 1;
+    }
     this.focusPlayer();
   }
-  private step(a: Actor, next: Cell, allowSeat = false): Promise<void> {
-    if (!this.alive || !canStep(a.cell, next, allowSeat))
-      return Promise.resolve();
-    const dx = next.x - a.cell.x,
-      dy = next.y - a.cell.y;
-    a.direction = directions.findIndex((d) => d.x === dx && d.y === dy);
-    if (a.direction < 0) a.direction = 1;
-    a.seated = false;
-    a.moving = true;
-    a.movingTo = next;
-    a.stepStart = this.time.now;
-    const p = this.iso(next);
-    return new Promise((resolve) =>
-      this.tweens.add({
-        targets: a.sprite,
-        x: p.x,
-        y: p.y,
-        duration: 500 * Math.hypot(dx, dy),
-        ease: "Linear",
-        onUpdate: () => this.align(a),
-        onStop: () => resolve(),
-        onComplete: () => {
-          a.cell = { ...next };
-          a.movingTo = undefined;
-          a.moving = false;
-          a.sprite.setPosition(p.x, p.y);
-          this.align(a);
-          resolve();
-        },
-      }),
+  private readManualInput(time: number): Cell | undefined {
+    const active = document.activeElement;
+    const typing =
+      active instanceof HTMLElement &&
+      (["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName) ||
+        active.isContentEditable ||
+        !!active.closest(".floating-window"));
+    if (typing || !this.controlsEnabled) {
+      this.manualActive = false;
+      return;
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE))
+      this.player.waveUntil = time + 1200;
+    const horizontal =
+        Number(this.keys.D.isDown || this.keys.RIGHT.isDown) -
+        Number(this.keys.A.isDown || this.keys.LEFT.isDown),
+      vertical =
+        Number(this.keys.S.isDown || this.keys.DOWN.isDown) -
+        Number(this.keys.W.isDown || this.keys.UP.isDown);
+    if (!horizontal && !vertical) {
+      this.manualActive = false;
+      return;
+    }
+    if (!this.manualActive) this.focusPlayer();
+    this.manualActive = true;
+    this.player.motion.replace([]);
+    this.player.seatGoal = undefined;
+    this.destinationSeat = undefined;
+    return {
+      x: Math.sign(horizontal + vertical),
+      y: Math.sign(vertical - horizontal),
+    };
+  }
+  private advanceActor(a: Actor, delta: number, manual?: Cell) {
+    const wasMoving = a.moving;
+    a.motion.advance(
+      delta / 1000,
+      (from, next) =>
+        canStep(from, next, key(next) === a.seatGoal) &&
+        !this.occupied(next, a.id),
+      manual
+        ? () => ({
+            x: a.motion.cell.x + manual.x,
+            y: a.motion.cell.y + manual.y,
+          })
+        : undefined,
     );
+    a.cell = { ...a.motion.cell };
+    a.movingTo = a.motion.target ? { ...a.motion.target } : undefined;
+    a.moving = a.motion.moving;
+    const direction = a.motion.direction;
+    if (direction)
+      a.direction = Math.max(
+        0,
+        directions.findIndex((d) => d.x === direction.x && d.y === direction.y),
+      );
+    if (a.moving) {
+      a.seated = false;
+      if (!wasMoving) a.stepStart = this.time.now;
+    }
+    const p = this.iso(a.motion.position);
+    a.sprite.setPosition(p.x, p.y);
+    this.align(a);
+    if (!a.moving) {
+      if (a.seatGoal === key(a.cell)) {
+        a.seated = true;
+        a.direction = this.seats.get(a.seatGoal)?.direction ?? a.direction;
+      }
+      const done = a.arrival;
+      a.arrival = undefined;
+      done?.();
+    }
   }
   private wait(ms: number) {
     return new Promise<void>((resolve) => {
@@ -417,11 +507,15 @@ export class OfficeScene extends Phaser.Scene {
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, finish);
     });
   }
-  private async walk(a: Actor, goal: Cell, seat = false) {
-    for (const next of pathfind(a.cell, goal, seat)) {
-      if (!this.alive) return;
-      await this.step(a, next, seat && key(next) === key(goal));
-    }
+  private walk(a: Actor, goal: Cell, seat = false): Promise<void> {
+    if (!this.alive) return Promise.resolve();
+    const route = pathfind(a.motion.target ?? a.motion.cell, goal, seat);
+    if (!route.length && !a.motion.target) return Promise.resolve();
+    a.seatGoal = seat ? key(goal) : undefined;
+    a.motion.replace(route);
+    return new Promise((resolve) => {
+      a.arrival = resolve;
+    });
   }
   private approach(a: Actor, target: Actor, reserved: Set<string>) {
     const choices = neighbors(target.cell)
@@ -581,7 +675,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.align(a);
   }
-  update(time: number) {
+  update(time: number, delta: number) {
     if (!this.player || !this.alive) return;
     const tick = Math.floor(time / 360);
     if (tick !== this.ambientTick) {
@@ -590,6 +684,10 @@ export class OfficeScene extends Phaser.Scene {
         a.sprite.setTexture(`prop-${a.kind}-${(tick + a.offset) % 3}`),
       );
     }
+    this.advanceZoom(delta);
+    const manual = this.readManualInput(time);
+    this.advanceActor(this.player, delta, manual);
+    this.agents.forEach((a) => this.advanceActor(a, delta));
     const pointer = this.input.activePointer;
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     const cell = this.cellAt(world);
@@ -652,52 +750,6 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.controlsEnabled) {
       this.prompt.setVisible(false);
       return;
-    }
-    if (!this.player.moving) {
-      let d: Cell | undefined;
-      if (!typing) {
-        const horizontal =
-            Number(this.keys.D.isDown || this.keys.RIGHT.isDown) -
-            Number(this.keys.A.isDown || this.keys.LEFT.isDown),
-          vertical =
-            Number(this.keys.S.isDown || this.keys.DOWN.isDown) -
-            Number(this.keys.W.isDown || this.keys.UP.isDown);
-        if (horizontal || vertical)
-          d = {
-            x: Math.sign(horizontal + vertical),
-            y: Math.sign(vertical - horizontal),
-          };
-        if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE))
-          this.player.waveUntil = time + 1200;
-      }
-      if (d) {
-        this.route = [];
-        this.destinationSeat = undefined;
-        this.focusPlayer();
-        const next = {
-          x: this.player.cell.x + d.x,
-          y: this.player.cell.y + d.y,
-        };
-        if (!this.occupied(next, "user")) void this.step(this.player, next);
-      } else if (this.route.length) {
-        const next = this.route.shift()!;
-        if (!this.occupied(next, "user"))
-          void this.step(
-            this.player,
-            next,
-            key(next) === this.destinationSeat,
-          ).then(() => {
-            if (
-              !this.route.length &&
-              this.destinationSeat === key(this.player.cell)
-            ) {
-              this.player.seated = true;
-              this.player.direction =
-                this.seats.get(this.destinationSeat)?.direction ?? 1;
-            }
-          });
-        else this.route = [];
-      }
     }
     this.target = undefined;
     const distance = (p: Cell) =>

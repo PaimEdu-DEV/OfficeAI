@@ -10,14 +10,17 @@ All game art remains original raster artwork; no commercial game assets are used
 
 The 24 x 22 collision grid uses 8-way A* with octile distance. Diagonal steps
 require both adjacent cardinal cells to be clear, preventing corner cutting.
-A cardinal tile takes 500 ms, a diagonal sqrt(2) times that duration. A completed
-step snaps to the tile center. A route selected mid-step starts at the current
-step's destination. Furniture remains blocked; only a selected chair is allowed
+A single delta-time integrator moves at 3.2 grid units per second and carries
+unused frame time across waypoints, without starting a new tween per tile.
+A click during motion replaces future waypoints while preserving the valid
+current segment. Holding movement keys primes the next segment in the same
+frame. Furniture remains blocked; only a selected chair is allowed
 as a final endpoint. Clicking an unoccupied chair seats the user. WASD/arrows are
 screen-relative, including combinations; Space waves; E opens nearby interaction.
 
 The camera follows with interpolation and has map bounds. Mouse wheel uses
-integer zoom 1x through 4x around the cursor. Right/middle drag pans; left drag
+smooth fractional zoom 0.5x through 6x around the cursor. Nearest-neighbor
+filtering stays enabled and camera translation is rounded to physical pixels. Right/middle drag pans; left drag
 also pans on empty floor. A compact Map menu selects rooms or resumes following.
 The floor under the pointer is highlighted. Names appear on hover/selection.
 
@@ -50,3 +53,12 @@ from actual preload events. Temporary textures are released after expiry.
 Validation includes TypeScript, Vite/Electron build, corner-blocking and seat
 path checks, queue grouping in both arrival orders, and Electron screenshots and
 input checks. The native execution confirmation remains a backend interaction.
+
+## Room geometry
+
+The rear y=0 boundary always uses x-axis wall pieces, and the x=0 boundary
+always uses y-axis pieces. Both pieces meet at the corner, including intersections
+with internal dividers. Front foundation strips follow their boundary axis.
+Conference chairs form two rows of three at x=3,4,5; opposite rows face the
+table using separately rasterized, depth-sorted reversed chair geometry. Seat
+facing and chair-back occlusion match the visible furniture.
