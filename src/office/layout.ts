@@ -16,17 +16,21 @@ export function drawOffice(
       for (let xx = x; xx < x + w; xx++) blocked.add(key({ x: xx, y: yy }));
   };
   const prop = (kind: Prop, x: number, y: number, solid = true) => {
-    const seat = kind === "chair" || kind === "gamer";
+    const seat =
+      kind === "chair" || kind === "chairReverse" || kind === "gamer";
     if (solid || seat) blocked.add(key({ x, y }));
     const p = iso({ x, y });
     const image = scene.add
       .image(p.x, p.y, `prop-${kind}-0`)
       .setOrigin(0.5, 148 / 192)
-      .setDepth(p.y + 0.1);
+      .setDepth(p.y + (kind === "chairReverse" ? 0.75 : 0.1));
     if (kind === "server" || kind === "coffee")
       ambient.push({ sprite: image, kind, offset: x + y });
     if (seat) {
-      seats.set(key({ x, y }), { cell: { x, y }, direction: 5 });
+      seats.set(key({ x, y }), {
+        cell: { x, y },
+        direction: kind === "chairReverse" ? 6 : 2,
+      });
       image.setData("seat", key({ x, y }));
       image.setInteractive({
         pixelPerfect: true,
@@ -53,22 +57,28 @@ export function drawOffice(
       // Thick foundation visible along the cutaway edges.
       if (y === ROWS - 1 || x === COLS - 1)
         scene.add
-          .image(p.x, p.y, "wall-cream-x-8")
+          .image(p.x, p.y, `wall-cream-${x === COLS - 1 ? "y" : "x"}-8`)
           .setOrigin(0.5, 148 / 192)
           .setDepth(-1900);
     }
+  const wall = (x: number, y: number, axis: "x" | "y", height: number) => {
+    const p = iso({ x, y }),
+      color = x < 8 ? "coral" : x < 15 ? "mint" : "blue";
+    scene.add
+      .image(p.x, p.y, `wall-${color}-${axis}-${height}`)
+      .setOrigin(0.5, 148 / 192)
+      .setDepth(p.y + (axis === "x" ? 0.01 : 0));
+  };
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++)
       if (blocked.has(key({ x, y }))) {
-        const p = iso({ x, y }),
-          axis = x === 0 || x === 8 || x === 15 || x === COLS - 1 ? "y" : "x";
-        const color = x < 8 ? "coral" : x < 15 ? "mint" : "blue";
-        const height =
-          x === 0 || y === 0 ? 76 : x === COLS - 1 || y === ROWS - 1 ? 8 : 28;
-        scene.add
-          .image(p.x, p.y, `wall-${color}-${axis}-${height}`)
-          .setOrigin(0.5, 148 / 192)
-          .setDepth(p.y);
+        // Both rear boundaries are uninterrupted, including divider intersections.
+        // Draw both perpendicular pieces at the common corner to close the L joint.
+        if (y === 0) wall(x, y, "x", 76);
+        if (x === 0) wall(x, y, "y", 76);
+        if (x === 0 || y === 0) continue;
+        const axis = x === 8 || x === 15 || x === COLS - 1 ? "y" : "x";
+        wall(x, y, axis, x === COLS - 1 || y === ROWS - 1 ? 8 : 28);
       }
   prop("books", 2, 1);
   prop("window", 5, 0, false);
@@ -99,7 +109,10 @@ export function drawOffice(
   prop("plant", 17, 6);
   prop("conference", 4, 11);
   occupy(3, 11, 3, 1);
-  for (const x of [2, 4, 6]) for (const y of [10, 12]) prop("chair", x, y);
+  for (const x of [3, 4, 5]) {
+    prop("chair", x, 10);
+    prop("chairReverse", x, 12);
+  }
   prop("tv", 4, 8, false);
   prop("whiteboard", 1, 9, false);
   prop("plant", 7, 13);

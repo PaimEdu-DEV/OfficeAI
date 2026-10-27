@@ -17,6 +17,7 @@ export type Prop =
   | "executive"
   | "devdesk"
   | "chair"
+  | "chairReverse"
   | "gamer"
   | "books"
   | "plant"
@@ -64,18 +65,50 @@ function screen(p: Pixels, x: number, y: number, z: number, w = 18, h = 17) {
   }
   p.box(x + w / 2 - 2, y + 1, 4, 6, z - 5, 5, INK);
 }
-function chair(p: Pixels, color: Palette, gamer = false) {
-  p.box(-10, -8, 20, 18, 12, 5, color);
-  p.box(-10, -10, 20, 4, 16, gamer ? 29 : 22, color);
-  p.box(-9, -6, 3, 17, 18, 4, INK);
-  p.box(7, -6, 3, 17, 18, 4, INK);
-  p.box(-3, -2, 5, 5, 1, 11, INK);
-  p.box(-12, -1, 25, 3, 1, 3, INK);
-  p.box(-2, -10, 3, 23, 1, 3, INK);
+function chair(p: Pixels, color: Palette, gamer = false, reversed = false) {
+  const boxes: {
+    x: number;
+    y: number;
+    w: number;
+    d: number;
+    z: number;
+    h: number;
+    color: Palette;
+  }[] = [];
+  const box = (
+    x: number,
+    y: number,
+    w: number,
+    d: number,
+    z: number,
+    h: number,
+    c: Palette,
+  ) =>
+    boxes.push({
+      x: reversed ? -x - w : x,
+      y: reversed ? -y - d : y,
+      w,
+      d,
+      z,
+      h,
+      color: c,
+    });
+  box(-10, -8, 20, 18, 12, 5, color);
+  box(-10, -10, 20, 4, 16, gamer ? 29 : 22, color);
+  box(-9, -6, 3, 17, 18, 4, INK);
+  box(7, -6, 3, 17, 18, 4, INK);
+  box(-3, -2, 5, 5, 1, 11, INK);
+  box(-12, -1, 25, 3, 1, 3, INK);
+  box(-2, -10, 3, 23, 1, 3, INK);
   if (gamer) {
-    p.box(-7, -9, 3, 3, 20, 20, CREAM);
-    p.box(5, -9, 3, 3, 20, 20, CREAM);
+    box(-7, -9, 3, 3, 20, 20, CREAM);
+    box(5, -9, 3, 3, 20, 20, CREAM);
   }
+  boxes.sort(
+    (a, b) =>
+      a.x + a.y + (a.w + a.d) / 2 - (b.x + b.y + (b.w + b.d) / 2) || a.z - b.z,
+  );
+  for (const b of boxes) p.box(b.x, b.y, b.w, b.d, b.z, b.h, b.color);
 }
 export function propPixels(kind: Prop, frame = 0): Pixels {
   const p = new Pixels(192, 192);
@@ -116,13 +149,14 @@ export function propPixels(kind: Prop, frame = 0): Pixels {
       p.line(a[0], a[1], b[0], b[1], "#3c4653");
       p.line(b[0], b[1], c[0], c[1], "#3c4653");
     }
-  } else if (kind === "chair" || kind === "gamer")
+  } else if (kind === "chair" || kind === "chairReverse" || kind === "gamer")
     chair(
       p,
-      kind === "chair"
+      kind !== "gamer"
         ? { top: "#a57462", left: "#714b45", right: "#533b3a" }
         : MINT,
       kind === "gamer",
+      kind === "chairReverse",
     );
   else if (kind === "books") {
     box(-25, -8, 50, 17, 0, 65, DARKWOOD);
@@ -473,6 +507,7 @@ export function buildTextures(scene: Phaser.Scene) {
     "executive",
     "devdesk",
     "chair",
+    "chairReverse",
     "gamer",
     "books",
     "plant",
