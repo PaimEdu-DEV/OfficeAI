@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 :root {
   font-family: "DM Sans", sans-serif;
   color: #dce5ef;
@@ -623,5 +622,476 @@ footer b {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+}
+.workspace {
+  position: relative;
+}
+.tool-toggle {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tool-toggle.active {
+  background: #26433c;
+  color: #beefdc;
+  border-color: #588874;
+}
+.tools-workbench {
+  position: absolute;
+  inset: 0 0 0 252px;
+  z-index: 12;
+  background: #101923;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tools-workbench[hidden],
+.execution-workbench[hidden] {
+  display: none;
+}
+.tools-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid #293a49;
+  flex-shrink: 0;
+}
+.tools-heading .tabs {
+  border: 0;
+  padding: 0;
+}
+.tools-heading > .quiet {
+  font-size: 11px;
+}
+.project-workbench {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.project-list {
+  width: 235px;
+  flex-shrink: 0;
+  border-right: 1px solid #263646;
+  padding: 22px 14px;
+  overflow: auto;
+}
+.project-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 20px 0;
+}
+.project-actions button {
+  font-size: 11px;
+}
+.project-item,
+.process-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: none;
+  margin-bottom: 8px;
+  padding: 12px;
+}
+.project-item.active,
+.process-item.active {
+  background: #20352f;
+  border-color: #37554d;
+}
+.project-item strong,
+.process-item strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.project-item small {
+  font-size: 9px;
+  color: #7890a6;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.project-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.project-form {
+  max-width: 650px;
+  width: 100%;
+  padding: 36px;
+  margin: 0 auto;
+}
+.project-form h2,
+.project-summary h2,
+.execution-top h2 {
+  font:
+    500 24px "Space Grotesk",
+    sans-serif;
+  margin: 10px 0;
+}
+.project-form > p,
+.project-summary p,
+.execution-top p {
+  color: #849bad;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.project-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 22px;
+  font-size: 12px;
+  color: #a9c0d0;
+}
+.project-form input,
+.project-form select,
+.project-form textarea,
+.command-form input {
+  width: 100%;
+  border: 1px solid #304455;
+  border-radius: 7px;
+  background: #0d1620;
+  color: #d7e5ef;
+  padding: 11px;
+  font:
+    12px "DM Sans",
+    sans-serif;
+}
+.project-form textarea {
+  min-height: 95px;
+  resize: vertical;
+}
+.directory-picker {
+  display: flex;
+  gap: 8px;
+}
+.directory-picker button {
+  font-size: 11px;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.project-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 24px;
+  border-bottom: 1px solid #263646;
+  flex-shrink: 0;
+}
+.project-summary h2 {
+  font-size: 19px;
+}
+.project-summary p {
+  font-size: 10px;
+  margin: 5px 0;
+}
+.project-summary .project-goal {
+  font-size: 12px;
+  color: #a4c1b6;
+}
+.project-summary button {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.project-files {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.project-tree {
+  width: 235px;
+  flex-shrink: 0;
+  border-right: 1px solid #263646;
+  padding: 18px 10px;
+  overflow: auto;
+}
+.file-tree {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.file-tree .file-tree {
+  padding-left: 12px;
+  border-left: 1px solid #2a3948;
+  margin-left: 6px;
+}
+.file-tree li {
+  min-width: 0;
+}
+.file-tree .file-entry {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.tree-note {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #7c92a6;
+  padding: 8px;
+}
+.project-files > .editor-empty {
+  align-self: center;
+  text-align: center;
+  flex: 1;
+}
+.project-files .editor {
+  min-width: 0;
+}
+.execution-workbench {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 24px;
+  gap: 18px;
+}
+.execution-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.execution-top h2 {
+  font-size: 22px;
+}
+.execution-top p {
+  margin: 4px 0;
+  font-size: 11px;
+}
+.command-form {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #0b141e;
+  border: 1px solid #2b4050;
+  border-radius: 10px;
+}
+.command-form > span {
+  color: #9bdfc5;
+}
+.command-form input {
+  border: 0;
+  background: none;
+  padding: 6px;
+}
+.command-form button {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.execution-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #263747;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.process-list {
+  width: 220px;
+  overflow: auto;
+  flex-shrink: 0;
+  border-right: 1px solid #263747;
+  padding: 16px 10px;
+}
+.process-list > .section-label {
+  margin-bottom: 14px;
+}
+.process-state {
+  font-size: 10px;
+  color: #849bad;
+}
+.process-state.running {
+  color: #99dfbe;
+}
+.process-state.failed {
+  color: #ec929a;
+}
+.process-item small {
+  font-size: 9px;
+  color: #6c8499;
+}
+.process-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+}
+.process-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid #263747;
+  padding: 10px;
+}
+.process-toolbar > span {
+  flex: 1;
+  font: 11px monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #9eb5c7;
+}
+.process-toolbar button {
+  font-size: 10px;
+  padding: 7px;
+  white-space: nowrap;
+}
+.terminal {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #0a111a;
+  padding: 18px;
+  font:
+    11px/1.7 Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #b4cfbf;
+}
+.terminal .stderr {
+  color: #edac91;
+}
+.terminal-note {
+  color: #5f788c;
+  font-size: 11px;
+  white-space: normal;
+}
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: white;
+}
+.preview-address {
+  background: #182633;
+  color: #8eabbc;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 10px monospace;
+  gap: 8px;
+}
+.preview-address > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-address button {
+  font-size: 10px;
+}
+.preview-panel iframe {
+  border: 0;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  background: white;
+}
+@media (max-width: 1150px) {
+  .tools-workbench {
+    left: 210px;
+  }
+  .project-list {
+    width: 185px;
+  }
+  .project-tree {
+    width: 180px;
+  }
+  .project-picker {
+    gap: 7px;
+  }
+  .project-picker select {
+    max-width: 145px;
+  }
+  .process-list {
+    width: 175px;
+  }
+  .process-toolbar {
+    flex-wrap: wrap;
+  }
+  .process-toolbar > span {
+    flex-basis: 100%;
+  }
+  .project-form {
+    padding: 24px;
+  }
+}
+@media (max-width: 800px) {
+  .tools-workbench {
+    left: 80px;
+  }
+  .project-picker > .quiet {
+    display: none;
+  }
+  .brand strong {
+    font-size: 12px;
+  }
+  .brand-mark {
+    font-size: 24px;
+  }
+  .project-picker select {
+    max-width: 100px;
+  }
+  .tool-toggle {
+    font-size: 10px;
+    padding: 7px;
+  }
+  .project-workbench {
+    flex-direction: column;
+  }
+  .project-list {
+    width: 100%;
+    max-height: 160px;
+    border-right: 0;
+    border-bottom: 1px solid #263646;
+    padding: 12px;
+  }
+  .project-actions {
+    flex-direction: row;
+    margin: 10px 0;
+  }
+  .project-item {
+    display: inline-flex;
+    width: auto;
+    max-width: 160px;
+    margin-right: 8px;
+  }
+  .project-item small {
+    display: none;
+  }
+  .project-summary {
+    padding: 12px;
+  }
+  .project-tree {
+    width: 155px;
+  }
+  .execution-workbench {
+    padding: 12px;
+  }
+  .process-list {
+    width: 140px;
+    padding: 10px 5px;
+  }
+  .tools-heading {
+    padding: 0 10px;
+  }
+  .tools-heading > .quiet {
+    font-size: 9px;
+  }
+  .execution-top .scene-badge {
+    display: none;
   }
 }

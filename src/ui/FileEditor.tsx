@@ -1,12 +1,26 @@
-﻿import { lazy, Suspense, useEffect, useState } from "react";
-import { loader } from "@monaco-editor/react";
+import { useEffect, useState } from "react";
+import Editor, { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import EditorWorker from "monaco-editor/editor/editor.worker.js?worker&inline";
+import TypeScriptWorker from "monaco-editor/language/typescript/ts.worker.js?worker&inline";
+import JsonWorker from "monaco-editor/language/json/json.worker.js?worker&inline";
+import CssWorker from "monaco-editor/language/css/css.worker.js?worker&inline";
+import HtmlWorker from "monaco-editor/language/html/html.worker.js?worker&inline";
 (
   globalThis as typeof globalThis & { MonacoEnvironment: unknown }
-).MonacoEnvironment = { getWorker: () => new EditorWorker() };
+).MonacoEnvironment = {
+  getWorker: (_module: string, label: string) => {
+    if (label === "typescript" || label === "javascript")
+      return new TypeScriptWorker();
+    if (label === "json") return new JsonWorker();
+    if (["css", "scss", "less"].includes(label)) return new CssWorker();
+    if (["html", "handlebars", "razor"].includes(label))
+      return new HtmlWorker();
+    return new EditorWorker();
+  },
+};
 loader.config({ monaco });
-const Editor = lazy(() => import("@monaco-editor/react"));
+
 export default function FileEditor({
   projectId,
   path,
@@ -58,22 +72,20 @@ export default function FileEditor({
       ) : content === undefined ? (
         <p>Carregando arquivo…</p>
       ) : (
-        <Suspense fallback={<p>Carregando editor…</p>}>
-          <Editor
-            path={`${projectId}/${path}`}
-            language={language}
-            value={content}
-            theme="vs-dark"
-            options={{
-              readOnly: true,
-              minimap: { enabled: false },
-              fontSize: 12,
-              padding: { top: 16 },
-              automaticLayout: true,
-              scrollBeyondLastLine: false,
-            }}
-          />
-        </Suspense>
+        <Editor
+          path={`${projectId}/${path}`}
+          language={language}
+          value={content}
+          theme="vs-dark"
+          options={{
+            readOnly: true,
+            minimap: { enabled: false },
+            fontSize: 12,
+            padding: { top: 16 },
+            automaticLayout: true,
+            scrollBeyondLastLine: false,
+          }}
+        />
       )}
     </div>
   );

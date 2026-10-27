@@ -31,6 +31,7 @@ type Actor = {
   moving: boolean;
 };
 export class OfficeScene extends Phaser.Scene {
+  controlsEnabled = true;
   private player!: Actor;
   private agents = new Map<string, Actor>();
   private route: Cell[] = [];
@@ -242,20 +243,25 @@ export class OfficeScene extends Phaser.Scene {
         .setScale(1.3)
         .setDepth(p.y + 24),
       label: this.add
-        .text(p.x, p.y - 38, name, {
+        .text(p.x, p.y - 40, name, {
           fontFamily: "monospace",
           fontSize: "12px",
           color: "#e1e9ef",
+          backgroundColor: "#15232f",
+          padding: { x: 4, y: 3 },
         })
-        .setOrigin(0.5)
+        .setOrigin(0.5, 1)
         .setDepth(1500),
       indicator: this.add
-        .text(p.x, p.y - 54, "○ Desconectado", {
+        .text(p.x, p.y - 63, "○ Desconectado", {
           fontFamily: "monospace",
           fontSize: "10px",
           color: "#8393a3",
+          backgroundColor: "#15232f",
+          padding: { x: 4, y: 3 },
         })
-        .setOrigin(0.5)
+        .setOrigin(0.5, 1)
+        .setVisible(texture !== "user")
         .setDepth(1500),
       status: "disconnected",
       moving: false,
@@ -319,8 +325,8 @@ export class OfficeScene extends Phaser.Scene {
         duration: 155,
         onUpdate: () => {
           actor.sprite.setDepth(actor.sprite.y + 9);
-          actor.label.setPosition(actor.sprite.x, actor.sprite.y - 53);
-          actor.indicator.setPosition(actor.sprite.x, actor.sprite.y - 69);
+          actor.label.setPosition(actor.sprite.x, actor.sprite.y - 55);
+          actor.indicator.setPosition(actor.sprite.x, actor.sprite.y - 78);
         },
         onComplete: () => {
           actor.moving = false;
@@ -367,7 +373,7 @@ export class OfficeScene extends Phaser.Scene {
         document.activeElement.tagName,
       ) ||
         document.activeElement.isContentEditable);
-    if (typing) {
+    if (typing || !this.controlsEnabled) {
       this.route = [];
       this.prompt.setText("");
       return;
