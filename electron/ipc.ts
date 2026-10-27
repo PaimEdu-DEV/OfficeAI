@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentId, Meeting } from '../src/shared/types';
 import { Meetings } from './meetings';
+import { startOfficeBridge } from './officeBridge';
 import { ClaudeAdapter } from './adapters/claude';
 import { CodexAdapter } from './adapters/codex';
 import { watchBridgeInbox } from './bridge';
@@ -19,6 +20,8 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
   void claude.init();
   codex.init();
   const stopBridge = watchBridgeInbox();
+  const stopOfficeBridge = startOfficeBridge((text) =>
+    claude.ask(`[Codex, pelo AI Office]: ${text}`, defaultCwd, 'bridge:codex'));
 
   const send = (channel: string) => (payload: unknown) => getWin()?.webContents.send(channel, payload);
   bus.on('agent-event', send('agent-event'));
@@ -130,6 +133,7 @@ export function registerIpc(getWin: () => BrowserWindow | null) {
     claude.dispose();
     codex.dispose();
     stopBridge();
+    stopOfficeBridge();
     processes.stopAll();
   });
 }
