@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { registerIpc } from './ipc';
 
@@ -20,6 +21,17 @@ function createWindow() {
   win.removeMenu();
   if (process.env.VITE_DEV_SERVER_URL) win.loadURL(process.env.VITE_DEV_SERVER_URL);
   else win.loadFile(path.join(__dirname, '../dist/index.html'));
+
+  // Verificacao visual: AI_OFFICE_SCREENSHOT=arquivo.png salva a janela apos o carregamento e encerra.
+  const shot = process.env.AI_OFFICE_SCREENSHOT;
+  if (shot) {
+    win.webContents.on('console-message', (_e, level, message) => level >= 2 && console.error('[renderer]', message));
+    win.webContents.once('did-finish-load', () =>
+      setTimeout(async () => {
+        fs.writeFileSync(shot, (await win!.webContents.capturePage()).toPNG());
+        app.quit();
+      }, Number(process.env.AI_OFFICE_SCREENSHOT_DELAY ?? 5000)));
+  }
 }
 
 app.whenReady().then(() => {
